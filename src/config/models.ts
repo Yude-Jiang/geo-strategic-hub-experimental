@@ -4,5 +4,5 @@ export const GEMINI_MODELS = {
   groundingFallback: 'gemini-2.5-flash',
   analysis: 'gemini-2.5-pro',
   chat: 'gemini-2.5-flash',
-  contentGen: 'gemini-2.5-flash',
+  contentGen: 'gemini-2.5-pro',
 } as const;

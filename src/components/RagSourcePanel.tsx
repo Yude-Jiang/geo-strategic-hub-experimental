@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Link as LinkIcon, FileText, X, Loader2, Globe } from 'lucide-react';
+import { Upload, Link as LinkIcon, FileText, X, Loader2, Globe, ShieldCheck } from 'lucide-react';
 import { fetchUrlContent } from '../services/geminiService';
 
 interface RagSource {
@@ -11,10 +11,11 @@ interface RagSource {
 
 interface Props {
   onSourcesChange: (sources: RagSource[]) => void;
+  systemSources?: RagSource[];
   isLoading?: boolean;
 }
 
-const RagSourcePanel: React.FC<Props> = ({ onSourcesChange }) => {
+const RagSourcePanel: React.FC<Props> = ({ onSourcesChange, systemSources }) => {
   const [sources, setSources] = useState<RagSource[]>([]);
   const [urlInput, setUrlInput] = useState('');
   const [isUrlLoading, setIsUrlLoading] = useState(false);
@@ -114,11 +115,25 @@ const RagSourcePanel: React.FC<Props> = ({ onSourcesChange }) => {
         </label>
 
         {/* Source List */}
-        {sources.length > 0 && (
-          <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+        {(sources.length > 0 || (systemSources && systemSources.length > 0)) && (
+          <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+            {/* System Sources */}
+            {systemSources?.map((s, idx) => (
+              <div key={`system-${idx}`} className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl border border-emerald-100 group animate-pulse-subtle">
+                <div className="p-2 rounded-lg bg-emerald-100 text-emerald-600">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-[#03234b] truncate">{s.name}</p>
+                  <p className="text-[10px] text-emerald-600 uppercase font-black tracking-tighter">System Verified • Evidence Found</p>
+                </div>
+              </div>
+            ))}
+
+            {/* User Sources */}
             {sources.map((s, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 group animate-slide-up">
-                <div className={`p-2 rounded-lg ${s.type === 'url' ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>
+              <div key={`user-${idx}`} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 group animate-slide-up">
+                <div className={`p-2 rounded-lg ${s.type === 'url' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-600'}`}>
                   {s.type === 'url' ? <Globe className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
                 </div>
                 <div className="flex-1 min-w-0">

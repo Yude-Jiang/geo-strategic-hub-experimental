@@ -22,10 +22,13 @@ export interface WorkflowState {
   setDiagnosisResult: (result: import('../types').AnalysisResult | null) => void;
   seedKeywords: string[];
   setSeedKeywords: (keywords: string[]) => void;
-  selectedPainPoints: import('../types').AnalysisItem[];
-  setSelectedPainPoints: (points: import('../types').AnalysisItem[]) => void;
+  selectedMonitoringQuestions: import('../types').MonitoringQuestion[];
+  setSelectedMonitoringQuestions: (questions: import('../types').MonitoringQuestion[]) => void;
   diagnosisConfirmed: boolean;
   setDiagnosisConfirmed: (confirmed: boolean) => void;
+  isRefiningStrategy: boolean;
+  setIsRefiningStrategy: (refining: boolean) => void;
+  updateDiagnosisResultStrategy: (strategy: import('../types').MarketStrategy) => void;
 
   // Step 2: Strategy Data
   selectedPlaybooks: import('../types').StrategicPlaybookItem[]; 
@@ -61,10 +64,15 @@ export const useWorkflowStore = create<WorkflowState>()(
       setDiagnosisResult: (result) => set({ diagnosisResult: result }),
       seedKeywords: [],
       setSeedKeywords: (keywords) => set({ seedKeywords: keywords }),
-      selectedPainPoints: [],
-      setSelectedPainPoints: (points) => set({ selectedPainPoints: points }),
+      selectedMonitoringQuestions: [],
+      setSelectedMonitoringQuestions: (questions) => set({ selectedMonitoringQuestions: questions }),
       diagnosisConfirmed: false,
       setDiagnosisConfirmed: (confirmed) => set({ diagnosisConfirmed: confirmed }),
+      isRefiningStrategy: false,
+      setIsRefiningStrategy: (refining) => set({ isRefiningStrategy: refining }),
+      updateDiagnosisResultStrategy: (strategy) => set((state) => ({
+        diagnosisResult: state.diagnosisResult ? { ...state.diagnosisResult, marketStrategy: strategy } : null
+      })),
 
       selectedPlaybooks: [],
       setSelectedPlaybooks: (playbooks) => set({ selectedPlaybooks: playbooks }),

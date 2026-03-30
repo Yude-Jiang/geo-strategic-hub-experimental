@@ -17,10 +17,10 @@ export const translations = {
       production: '内容工程',
     },
     diagnosis: {
-      title: '意图诊断',
-      subtitle: '输入种子关键词，扫描',
-      subtitleSuffix: 'AI 生态，识别认知主权空白。',
-      seedLabel: '种子关键词（每行一个）',
+      title: '意图诊断 (Interception)',
+      subtitle: '输入产品核心弹药（参数/特性），进行',
+      subtitleSuffix: '大模型漏洞扫描与逆向工程。',
+      seedLabel: '产品技术子弹（每行一个）',
       regionLabel: '地区覆盖（可选）',
       regionPlaceholder: '例：大中华区、东南亚...',
       attachLabel: '附件 / 文件',
@@ -44,9 +44,9 @@ export const translations = {
       intentCluster: {
         title: '高转化意图战场 (Intent Focus Areas)',
         desc: '真实的终端客户很少精准搜索枯燥的型号名，他们总是向 AI 抛出痛点。以下为您挖掘出了最适合部署 GEO 拦截网的核心意图域。',
-        coreTitle: '战略意图集群'
+        coreTitle: '战略战役'
       },
-      coreProposition: '核心命题',
+      coreProposition: '战略级主张',
       aiBias: 'AI 认知偏见 (Why)',
       evidence: '诊断证据 / 推演逻辑',
       monitorQuestions: '监测问题 (Monitor)',
@@ -166,10 +166,10 @@ export const translations = {
       production: 'Production',
     },
     diagnosis: {
-      title: 'Intent Diagnosis',
-      subtitle: 'Input seed keywords to scan the',
-      subtitleSuffix: 'AI ecosystem for cognitive sovereignty gaps.',
-      seedLabel: 'Seed Keywords (one per line)',
+      title: 'Diagnosis (Interception)',
+      subtitle: 'Input core product ammo to test ',
+      subtitleSuffix: ' AI models for cognitive gaps and reverse-engineer prompts.',
+      seedLabel: 'Product Specs / Ammo (1 per line)',
       regionLabel: 'Region Override (optional)',
       regionPlaceholder: 'e.g. DACH, Southeast Asia...',
       attachLabel: 'Images / Docs',

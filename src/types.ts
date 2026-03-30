@@ -1,10 +1,8 @@
 
-export interface AnalysisItem {
-  searchTerm: string;
-  intentCategory: string; // [Academic/Cognition], [Application/Solution], [Reliability/Risk], [Commercial/Selection]
-  userPainPoint: string;
-  aiKnowledgeGap: string; 
-  strategicContent: string; 
+export interface MonitoringQuestion {
+  id: string; // unique ID for selection
+  userPrompt: string; // The specific complex question an engineer asks AI (e.g. "Can I swap M0+ for M33 without increasing my BOM cost?")
+  expectedAnchor: string; // The exact entity/data AI MUST cite (e.g. "STM32C5 or $0.64 entry price cited")
 }
 
 export interface StrategicPlaybookItem {
@@ -65,12 +63,9 @@ export interface GroundingUrl {
 }
 
 export interface IntentCluster {
-  intentTitle: string;         // e.g., "BOM-Neutral M33 Migration"
-  coreProposition: string;     // The key business insight/argument (Core Proposition)
-  aiPerceptionBias: string;    // "Why": Current AI stereotypes or knowledge lag
-  evidenceLogic: string;       // Traceable reasoning or logic chain for the user
-  painPoints: AnalysisItem[];  // Specific technical/market gaps (Table A)
-  simulatedQuestions: string[]; // Monitoring questions WITHOUT original keywords
+  intentName: string;           // e.g., "Intent 1 · BOM-Neutral M0+ → M33 Architecture Migration"
+  coreProposition: string;       // e.g., "At $0.64 entry price, the M33 is expensive anchor no longer holds."
+  monitoringQuestions: MonitoringQuestion[]; // The specific interception checkpoints
 }
 
 export interface AnalysisResult {

@@ -5,7 +5,7 @@ import type { TranslationKeys } from '../i18n/translations';
 import {
   BookOpen, ChevronRight, Edit3, Check, Shield,
   Zap, Swords, ChevronDown, ChevronUp, Lock, RefreshCcw, Save, Trash2,
-  Lightbulb, AlertTriangle
+  Lightbulb, AlertTriangle, Target, Sparkles
 } from 'lucide-react';
 
 interface StepStrategyProps {
@@ -14,7 +14,7 @@ interface StepStrategyProps {
 
 const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
   const diagnosisResult = useWorkflowStore(state => state.diagnosisResult);
-  const selectedPainPoints = useWorkflowStore(state => state.selectedPainPoints);
+  const selectedMonitoringQuestions = useWorkflowStore(state => state.selectedMonitoringQuestions);
   const setSelectedPlaybooks = useWorkflowStore(state => state.setSelectedPlaybooks);
   const setStrategyConfirmed = useWorkflowStore(state => state.setStrategyConfirmed);
   const setStep = useWorkflowStore(state => state.setStep);
@@ -106,7 +106,7 @@ const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
           </p>
         </div>
         <div className="bg-white rounded-2xl p-6 shadow-xl border border-slate-100 flex flex-col justify-center text-center">
-          <span className="text-3xl font-black text-[#3cb4e6] leading-none mb-1">{selectedPainPoints.length}</span>
+          <span className="text-3xl font-black text-[#3cb4e6] leading-none mb-1">{selectedMonitoringQuestions.length}</span>
           <span className="text-[10px] text-slate-400 font-black uppercase">{t.strategy.inherited}</span>
         </div>
       </div>
@@ -130,6 +130,34 @@ const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
                 <span className="text-amber-500 mr-1">▸</span> {diagnosisResult.marketStrategy.comprehensiveInsight.marketGapAnalysis}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Added Data Flow Visualization: Showing the interception targets */}
+      {selectedMonitoringQuestions.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden mb-8">
+          <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex items-center gap-3">
+             <Target className="w-5 h-5 text-indigo-500" />
+             <h3 className="text-sm font-black text-[#03234b] uppercase tracking-widest">
+               {(t.strategy as any).activeTargets || '战略拦截目标 (Active Interception Targets)'}
+             </h3>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {selectedMonitoringQuestions.map((q) => (
+              <div key={q.id} className="p-5 flex flex-col md:flex-row gap-6 hover:bg-slate-50/50 transition-colors">
+                <div className="flex-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Monitoring Prompt</span>
+                  <p className="text-sm font-bold text-[#03234b] leading-relaxed">{q.userPrompt}</p>
+                </div>
+                <div className="flex-1">
+                   <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 block">Expected AI Anchor</span>
+                   <div className="bg-emerald-50 text-emerald-700 text-xs font-mono font-bold px-4 py-3 rounded-xl border border-emerald-100/50 break-words">
+                     {q.expectedAnchor}
+                   </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -158,6 +186,11 @@ const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
                     <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase border ${getTacticsBg(strategy.tacticsType)}`}>
                       {getTacticsIcon(strategy.tacticsType)} {strategy.tacticsType}
                     </div>
+                    {selectedMonitoringQuestions.length > 0 && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase bg-indigo-50 border border-indigo-100 text-indigo-600 animate-pulse">
+                        <Sparkles className="w-3 h-3" /> GEO Strategy Aligned
+                      </div>
+                    )}
                   </div>
 
                   {isEditing ? (

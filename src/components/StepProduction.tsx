@@ -4,12 +4,15 @@ import {
   generateContentStream, 
   generateJsonLdSchema, 
   humanizeContent, 
-  translateContent 
+  translateContent,
+  deepEvidenceGrounding,
+  withRetry
 } from '../services/geminiService';
 import type { TranslationKeys } from '../i18n/translations';
 import { 
   ArrowLeft, Loader2, Zap, 
-  ShieldCheck, Sword, Lightbulb, Target
+  ShieldCheck, Sword, Lightbulb, Target,
+  Search as SearchIcon
 } from 'lucide-react';
 
 import RagSourcePanel from './RagSourcePanel';
@@ -22,6 +25,7 @@ const END_REGEX = /={2,}\s*END\s*={2,}/i;
 const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const uiLang = useWorkflowStore(state => state.uiLang);
   const selectedPlaybooks = useWorkflowStore(state => state.selectedPlaybooks);
+  const selectedMonitoringQuestions = useWorkflowStore(state => state.selectedMonitoringQuestions);
   const setStep = useWorkflowStore(state => state.setStep);
 
   const [sources, setSources] = useState<any[]>([]);
@@ -38,7 +42,11 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const [schemaError, setSchemaError] = useState<string | null>(null);
 
   const [isHumanizing, setIsHumanizing] = useState(false);
+  const [isDeepSearching, setIsDeepSearching] = useState(false);
+  const [systemSources, setSystemSources] = useState<any[]>([]);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
 
   const parseModelOutput = (text: string) => {
     const analysisMatch = text.match(ANALYSIS_REGEX);
@@ -63,17 +71,66 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
     setFullOutput('');
     setSchemaStatus('idle');
     setSchemaContent('');
+    setGenerateError(null);
+    setRetryCountdown(null);
 
+    let accumulated = '';
     try {
-      const sourceContext = sources.map(s => `[Source: ${s.name}]\n${s.content}`).join('\n\n');
-      const stream = await generateContentStream(selectedPlatform, selectedFormat, selectedPlaybooks, customPrompt, sourceContext, uiLang);
-      for await (const chunk of stream) {
-        setFullOutput(prev => prev + (chunk || ''));
+      // 1. Deep Evidence Grounding (Step 3 mandatory check)
+      let combinedSources = [...sources];
+      
+      if (selectedMonitoringQuestions && selectedMonitoringQuestions.length > 0) {
+        setIsDeepSearching(true);
+        try {
+          const anchors = selectedMonitoringQuestions.map(q => q.expectedAnchor).filter(Boolean);
+          const deepRes = await deepEvidenceGrounding(anchors);
+          setSystemSources(deepRes);
+          combinedSources = [...combinedSources, ...deepRes];
+        } catch (searchErr) {
+          console.warn("Deep search failed, continuing with available sources:", searchErr);
+        } finally {
+          setIsDeepSearching(false);
+        }
       }
-      const latestText = parseModelOutput(fullOutput).content;
-      triggerSchema(latestText);
+
+      const sourceContext = combinedSources.map(s => `[Source: ${s.name}]\n${s.content}`).join('\n\n');
+
+      // generateContentStream uses withRetry internally for streaming
+      const stream = await withRetry(
+        () => generateContentStream(selectedPlatform, selectedFormat, selectedPlaybooks, selectedMonitoringQuestions, customPrompt, sourceContext, uiLang),
+        (s) => setRetryCountdown(s > 0 ? s : null)
+      );
+
+      for await (const chunk of stream) {
+        const text = chunk || '';
+        accumulated += text;
+        setFullOutput(prev => prev + text);
+      }
+
+      setRetryCountdown(null);
+      const { content } = parseModelOutput(accumulated);
+      if (content.trim()) {
+        // Also wrap JSON-LD with retry
+        withRetry(
+          () => generateJsonLdSchema(content, uiLang, selectedPlatform)
+            .then(schema => { setSchemaContent(schema || ''); setSchemaStatus('success'); }),
+          () => {}
+        ).catch(err => { setSchemaStatus('error'); setSchemaError(err?.message || 'Schema failed'); });
+      }
     } catch (err: any) {
       console.error(err);
+      let userMessage = err?.message || 'Generation failed. Please check your API key.';
+      try {
+        const raw = JSON.parse(err?.message || '{}');
+        const inner = raw?.error?.message || '';
+        if (raw?.error?.code === 429 || raw?.error?.status === 'RESOURCE_EXHAUSTED') {
+          userMessage = 'API 配额已达上限，已达到最大重试次数。请稍候再试。';
+        } else if (inner) {
+          userMessage = inner.split('\n')[0];
+        }
+      } catch (_) {}
+      setGenerateError(userMessage);
+      setRetryCountdown(null);
     } finally {
       setIsGenerating(false);
     }
@@ -144,8 +201,8 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-4 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="lg:col-span-4 flex flex-col gap-6">
           {/* Inherited Pillars UI */}
           {selectedPlaybooks.length > 0 && (
             <div className="bg-gradient-to-br from-[#03234b] to-[#0a3d7a] rounded-2xl p-5 shadow-lg border border-[#3cb4e6]/20 relative overflow-hidden">
@@ -163,7 +220,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
             </div>
           )}
 
-          <RagSourcePanel onSourcesChange={(s) => setSources(s)} />
+          <RagSourcePanel onSourcesChange={(s) => setSources(s)} systemSources={systemSources} />
           
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-6 space-y-6">
             <PlatformSelector 
@@ -187,15 +244,49 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
             <button
               onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full bg-[#03234b] text-white font-black text-sm uppercase py-5 rounded-2xl hover:bg-[#0a3d7a] disabled:opacity-40 transition-all flex items-center justify-center gap-3 shadow-lg group"
+              disabled={isGenerating || isDeepSearching}
+              className={`w-full font-black text-sm uppercase py-5 rounded-2xl transition-all flex items-center justify-center gap-3 shadow-lg group ${
+                retryCountdown 
+                  ? 'bg-amber-500 text-white cursor-wait' 
+                  : isDeepSearching
+                    ? 'bg-emerald-600 text-white cursor-wait'
+                    : 'bg-[#03234b] text-white hover:bg-[#0a3d7a] disabled:opacity-40'
+              }`}
             >
-              {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sword className="w-5 h-5 text-[#ffd200] group-hover:rotate-12" />}
-              {isGenerating ? t.production.generatingBtn : t.production.generateBtn}
+              {retryCountdown ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Rate Limit — 重试倒计时: {retryCountdown}s
+                </>
+              ) : isDeepSearching ? (
+                <>
+                  <SearchIcon className="w-5 h-5 animate-pulse text-[#ffd200]" />
+                  Deep Grounding... (深度溯源中)
+                </>
+              ) : isGenerating ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  {t.production.generatingBtn}
+                </>
+              ) : (
+                <>
+                  <Sword className="w-5 h-5 text-[#ffd200] group-hover:rotate-12" />
+                  {t.production.generateBtn}
+                </>
+              )}
             </button>
           </div>
         </div>
         <div className="lg:col-span-8">
+          {generateError && (
+            <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
+              <span className="text-red-500 text-lg">⚠️</span>
+              <div>
+                <p className="text-red-800 font-black text-xs uppercase tracking-widest">Generation Failed</p>
+                <p className="text-red-700 text-sm mt-1 font-mono">{generateError}</p>
+              </div>
+            </div>
+          )}
           <ProductOutputTabs 
             content={pastedContent}
             analysis={pastedAnalysis}

@@ -25,6 +25,17 @@ const ProductOutputTabs: React.FC<Props> = ({
   const [activeTab, setActiveTab] = React.useState<'preview' | 'analysis' | 'schema'>('preview');
   const [copied, setCopied] = React.useState(false);
 
+  const extractTitle = (text: string) => {
+    if (!text) return 'Document';
+    // Try to find first H1 or H2
+    const match = text.match(/^#\s+(.*)/m) || text.match(/^##\s+(.*)/m);
+    if (match) return match[1].trim().replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').slice(0, 50);
+    // Fallback to first non-empty line
+    const firstLine = text.split('\n').find(l => l.trim().length > 0);
+    if (firstLine) return firstLine.trim().replace(/[#\\/:*?"<>|]/g, '').replace(/\s+/g, '_').slice(0, 50);
+    return 'Document';
+  };
+
   const handleCopy = () => {
     const text = activeTab === 'schema' ? schema : activeTab === 'analysis' ? analysis : content;
     navigator.clipboard.writeText(text);
@@ -32,8 +43,42 @@ const ProductOutputTabs: React.FC<Props> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleExport = () => {
+    if (!content) return;
+    
+    let exportText = `# GEO Optimized Content\n\n${content}\n\n`;
+    
+    if (analysis) {
+      exportText += `\n---\n\n# Strategic Analysis\n\n${analysis}\n`;
+    }
+    
+    if (schema) {
+      exportText += `\n---\n\n# JSON-LD Schema\n\n\`\`\`json\n${schema}\n\`\`\`\n`;
+    }
+
+    const blob = new Blob([exportText], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    
+    const title = extractTitle(content);
+    const date = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `GEO_${title}_${date}.md`;
+    document.body.appendChild(a);
+    a.click();
+    
+    alert(`Markdown Export Initialized: GEO_${title}_${date}.md`);
+    
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  };
+
   return (
-    <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col h-[700px] animate-fade-in relative">
+    <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col h-[850px] animate-fade-in relative">
       {/* Tab Header */}
       <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex bg-slate-200/50 p-1 rounded-xl">
@@ -105,16 +150,16 @@ const ProductOutputTabs: React.FC<Props> = ({
       </div>
 
       {/* Content Viewport */}
-      <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-10 bg-slate-50/30 custom-scrollbar">
         {activeTab === 'preview' && (
-          <article className="prose prose-slate max-w-none prose-base prose-p:mb-5 prose-p:leading-loose prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-10 prose-headings:mb-4 prose-h2:text-xl prose-h3:text-lg prose-a:text-[#3cb4e6] prose-code:bg-slate-100 prose-pre:bg-[#03234b] prose-pre:text-white prose-pre:rounded-2xl prose-pre:shadow-lg prose-li:mb-2 prose-ul:my-4 prose-ol:my-4 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-slate-50 prose-blockquote:rounded-xl prose-hr:my-10">
+          <article className="prose prose-slate max-w-none prose-lg prose-p:mb-8 prose-p:leading-[1.85] prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-12 prose-headings:mb-6 prose-h2:text-2xl prose-h3:text-xl prose-a:text-[#3cb4e6] prose-code:bg-slate-100 prose-pre:bg-[#03234b] prose-pre:text-white prose-pre:rounded-2xl prose-pre:shadow-lg prose-li:mb-4 prose-ul:my-6 prose-ol:my-6 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-slate-50 prose-blockquote:rounded-xl prose-hr:my-12">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t.production.emptyHint || 'Content will appear here after generation...'}</ReactMarkdown>
           </article>
         )}
 
         {activeTab === 'analysis' && (
           <div className="space-y-6">
-            <article className="prose prose-slate max-w-none prose-base prose-p:mb-5 prose-p:leading-loose prose-headings:font-black prose-headings:text-[#03234b] prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-8 prose-headings:mb-4 prose-h2:text-xl prose-h3:text-lg prose-li:mb-2 prose-ul:my-4 prose-ol:my-4 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-blue-50 prose-blockquote:rounded-xl prose-hr:my-10">
+            <article className="prose prose-slate max-w-none prose-lg prose-p:mb-8 prose-p:leading-[1.85] prose-headings:font-black prose-headings:text-[#03234b] prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-10 prose-headings:mb-6 prose-h2:text-2xl prose-h3:text-xl prose-li:mb-4 prose-ul:my-6 prose-ol:my-6 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-blue-50 prose-blockquote:rounded-xl prose-hr:my-12">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis || t.production.emptyHint || 'Strategic analysis not found in model output.'}</ReactMarkdown>
             </article>
           </div>
@@ -158,7 +203,11 @@ const ProductOutputTabs: React.FC<Props> = ({
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{(t.production as any).footerNote || 'Verified Grounding Content • RAG Hybrid Strategy'}</span>
         </div>
-        <button className="flex items-center gap-1 text-[9px] font-black text-[#3cb4e6] uppercase tracking-widest hover:underline">
+        <button 
+          onClick={handleExport}
+          disabled={!content}
+          className="flex items-center gap-1 text-[9px] font-black text-[#3cb4e6] uppercase tracking-widest hover:underline disabled:opacity-30 disabled:no-underline"
+        >
           <Download className="w-3 h-3" /> {t.production.export}
         </button>
       </div>
