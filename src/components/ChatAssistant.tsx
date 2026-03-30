@@ -13,7 +13,7 @@ const ChatAssistant: React.FC = () => {
     chatHistory, 
     addChatMessage, 
     uiLang, 
-    selectedPainPoints, 
+    selectedMonitoringQuestions, 
     selectedPlaybooks,
     currentStep
   } = useWorkflowStore();
@@ -42,7 +42,7 @@ const ChatAssistant: React.FC = () => {
     try {
       const contextData = {
         currentStep,
-        selectedPainPoints,
+        selectedMonitoringQuestions,
         selectedPlaybooks
       };
       
