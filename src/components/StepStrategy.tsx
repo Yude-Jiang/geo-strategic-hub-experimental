@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useWorkflowStore } from '../store/workflowStore';
 import type { StrategicPlaybookItem } from '../types';
 import type { TranslationKeys } from '../i18n/translations';
@@ -18,19 +18,26 @@ const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
   const setSelectedPlaybooks = useWorkflowStore(state => state.setSelectedPlaybooks);
   const setStrategyConfirmed = useWorkflowStore(state => state.setStrategyConfirmed);
   const setStep = useWorkflowStore(state => state.setStep);
+  const refinementStatus = useWorkflowStore(state => state.refinementStatus);
 
   const [localPlaybooks, setLocalPlaybooks] = useState<StrategicPlaybookItem[]>([]);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
+  // Use a ref to track the last diagnosisResult we initialised from, to avoid
+  // re-initialising on every render while still responding to genuine updates.
+  const initialisedFromRef = useRef<typeof diagnosisResult>(null);
   useEffect(() => {
-    if (diagnosisResult?.marketStrategy) {
+    if (diagnosisResult?.marketStrategy && diagnosisResult !== initialisedFromRef.current) {
+      initialisedFromRef.current = diagnosisResult;
       const allStrats = [
         ...(diagnosisResult.marketStrategy.implicitIntentStrategy || []),
         ...(diagnosisResult.marketStrategy.competitorStrategy || [])
       ].map(s => ({ ...s }));
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalPlaybooks(allStrats);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedIndices(new Set(allStrats.map((_, i) => i)));
     }
   }, [diagnosisResult]);
@@ -92,6 +99,34 @@ const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
 
   return (
     <div className="space-y-6 animate-fade-in pb-32">
+
+      {/* Refinement Status Banner */}
+      {refinementStatus === 'failed' && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-300 rounded-2xl px-5 py-4">
+          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-800 leading-relaxed">
+              {(t.strategy as any).refinementFailed}
+            </p>
+          </div>
+          <button
+            onClick={() => setStep(1)}
+            className="flex-shrink-0 text-xs font-black text-amber-700 border border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-colors"
+          >
+            ← {t.strategy.backDiagnosis}
+          </button>
+        </div>
+      )}
+
+      {refinementStatus === 'skipped' && (
+        <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-5 py-4">
+          <Sparkles className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+          <p className="text-sm font-medium text-blue-700 leading-relaxed">
+            {(t.strategy as any).refinementSkipped}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 bg-gradient-to-r from-[#03234b] to-[#0a3d7a] rounded-2xl p-6 text-white shadow-xl">
           <div className="flex items-center gap-6 mb-3">
@@ -121,7 +156,7 @@ const StepStrategy: React.FC<StepStrategyProps> = ({ t }) => {
             </div>
             <div>
               <h4 className="text-xs font-black text-amber-800 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <AlertTriangle className="w-3 h-3" /> {(t.strategy as any).advisorNote || '诊断师洞察 (Advisor Note)'}
+                <AlertTriangle className="w-3 h-3" /> {(t.strategy as any).advisorNote}
               </h4>
               <p className="text-sm text-amber-900 font-medium leading-relaxed mb-3">
                 {diagnosisResult.marketStrategy.comprehensiveInsight.aiPerception}

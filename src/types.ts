@@ -12,6 +12,39 @@ export interface StrategicPlaybookItem {
   structuredDataStrategy: string; // How to Format (e.g., Listicle, Table, Code Block)
   geoAction: string; // Specific GEO Action
   targetSnippet: string; // The "Gold" Target Snippet for AI Answer Box
+  anchorIds: string[]; // IDs of MonitoringQuestions this playbook directly addresses
+}
+
+export type EvidenceAuthority = 'high' | 'medium' | 'low';
+export type EvidenceRecency  = 'fresh' | 'stale' | 'unknown';
+
+export interface EvidenceQuality {
+  authority: EvidenceAuthority; // based on domain signals (GitHub/arXiv/official = high)
+  recency: EvidenceRecency;     // based on URL date patterns
+  anchorMatch: boolean;         // whether source text contains the anchor keyword
+  score: number;                // composite 0-1 for sorting
+}
+
+export interface ScoredEvidenceSource {
+  type: 'file' | 'url' | 'system';
+  name: string;
+  content: string;
+  urls: { title: string; uri: string }[];
+  quality: EvidenceQuality;
+}
+
+// Serialisable RAG source — stored in localStorage so sources survive page refresh.
+// File objects cannot be serialised; we store the extracted text content instead.
+export interface PersistedRagSource {
+  type: 'file' | 'url';
+  name: string;
+  content: string;
+  wordCount: number;
+}
+
+export interface PlaybookAnchorBundle {
+  playbook: StrategicPlaybookItem;
+  anchors: MonitoringQuestion[]; // Resolved anchor objects bound to this playbook
 }
 
 export interface RoleSpecificSop {
@@ -62,18 +95,68 @@ export interface GroundingUrl {
   uri: string;
 }
 
+// ─── GEO Failure Taxonomy ────────────────────────────────────────────────────
+// Adapted from AgentGEO's 14-category system (arxiv 2311.09735) and mapped to
+// semiconductor B2B GEO context. Each category drives a different repair strategy.
+export type GeoFailureCategory =
+  | 'CORPUS_ABSENCE'        // AI training data has no signal about this product/feature (≈ DATA_INTEGRITY + LOW_INFO_DENSITY)
+  | 'ATTRIBUTE_MISMATCH'    // AI knows the product but cites wrong price/spec/positioning
+  | 'BURIED_ANSWER'         // Content has the answer but it's in PDFs/datasheets AI can't crawl
+  | 'COMPETITOR_DOMINANCE'  // Competitor corpus density far exceeds yours; AI defaults to them
+  | 'SEMANTIC_IRRELEVANCE'  // Your content uses "wireless MCU" but users ask "low power BLE SoC"
+  | 'OUTDATED_CONTENT'      // AI cites your 2022 pricing/EOL status / obsolete positioning
+  | 'TRUST_CREDIBILITY'     // No GitHub repos, arXiv citations, or official docs referencing you
+  | 'STRUCTURAL_WEAKNESS'   // Content exists but lacks BLUF / snippet-friendly structure
+  | 'UNKNOWN';
+
+export interface ClusterFailureDiagnosis {
+  primaryFailure: GeoFailureCategory;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  /** One concrete sentence explaining WHY this failure applies to this specific cluster */
+  explanation: string;
+  /** 1–10: drives Playbook selection priority (10 = fix this first) */
+  repairUrgency: number;
+}
+
 export interface IntentCluster {
   intentName: string;           // e.g., "Intent 1 · BOM-Neutral M0+ → M33 Architecture Migration"
   coreProposition: string;       // e.g., "At $0.64 entry price, the M33 is expensive anchor no longer holds."
   monitoringQuestions: MonitoringQuestion[]; // The specific interception checkpoints
+  failureDiagnosis?: ClusterFailureDiagnosis; // Root-cause failure category for this cluster
+}
+
+export type AnchorVerificationStatus = 'verified' | 'partial' | 'unverified';
+
+export interface AnchorVerificationResult {
+  anchorId: string;
+  anchor: string;           // the expectedAnchor text
+  status: AnchorVerificationStatus;
+  supportingUrls: string[]; // URLs where the anchor was found
+  confidence: number;       // 0-1
+}
+
+export interface ModelClaimVerification {
+  claim: string;          // The specific AI model preference claim extracted
+  evidenceFound: boolean; // Whether Google Search found supporting evidence
+  sourceUrls: string[];   // URLs that corroborate (or failed to find)
+}
+
+export interface ModelVerificationResult {
+  disclaimer: string;     // Human-readable disclaimer about simulation nature
+  confidence: 'high' | 'medium' | 'low' | 'unverified';
+  verifiedClaims: ModelClaimVerification[];
+  searchedAt: string;     // ISO timestamp of when verification ran
 }
 
 export interface AnalysisResult {
   strategyReport: StrategyReport;
   intentClusters: IntentCluster[];
   competitorAnalysis: CompetitorInsight[]; // Added array for Battle Cards
-  marketStrategy: MarketStrategy; 
+  marketStrategy: MarketStrategy;
   groundingUrls?: GroundingUrl[]; // Sources from Google Search
+  modelVerification?: ModelVerificationResult;
+  multiModelVerification?: import('./services/multiModelService').MultiModelVerificationResult;
+  anchorVerifications?: AnchorVerificationResult[];     // Per-anchor real-world validation
 }
 
 export type IntentCategory = 

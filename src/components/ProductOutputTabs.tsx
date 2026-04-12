@@ -1,7 +1,8 @@
 import React from 'react';
-import { Eye, FileCode, BarChart3, Copy, Download, Sparkles, Languages, Check, Loader2, AlertCircle } from 'lucide-react';
+import { Eye, FileCode, BarChart3, Copy, Download, Sparkles, Languages, Check, Loader2, AlertCircle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { GeoSignals } from '../services/structuralParser';
 
 interface Props {
   content: string;
@@ -14,13 +15,73 @@ interface Props {
   isHumanizing: boolean;
   isTranslating: boolean;
   t: any;
+  geoSignalsBefore?: GeoSignals | null;
+  geoSignalsAfter?: GeoSignals | null;
 }
 
-const ProductOutputTabs: React.FC<Props> = ({ 
-  content, analysis, schema, 
+// ─── GEO Audit Panel ─────────────────────────────────────────────────────────
+
+const SIGNAL_LABELS: { key: keyof GeoSignals; label: string; higherIsBetter: boolean; unit?: string }[] = [
+  { key: 'quantifiedClaims', label: '量化数据',     higherIsBetter: true  },
+  { key: 'techTerms',        label: '技术术语',     higherIsBetter: true  },
+  { key: 'citableChunks',    label: '可引用块',     higherIsBetter: true  },
+  { key: 'hedgeWords',       label: '模糊语气词',   higherIsBetter: false },
+];
+
+const GeoAuditPanel: React.FC<{ before: GeoSignals; after: GeoSignals }> = ({ before, after }) => (
+  <div className="rounded-2xl border border-slate-100 overflow-hidden mb-6">
+    <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+      <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">GEO 信号审计</span>
+      {after.blufCompliance && (
+        <span className="ml-auto text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+          ✓ 倒金字塔合规
+        </span>
+      )}
+    </div>
+    <div className="divide-y divide-slate-50">
+      {SIGNAL_LABELS.map(({ key, label, higherIsBetter }) => {
+        const b = before[key] as number;
+        const a = after[key] as number;
+        const improved = higherIsBetter ? a > b : a < b;
+        const regressed = higherIsBetter ? a < b : a > b;
+        const delta = a - b;
+        const sign = delta > 0 ? '+' : '';
+        return (
+          <div key={key} className="grid grid-cols-[1fr_auto_auto_auto] items-center px-4 py-2.5 gap-3">
+            <span className="text-xs font-bold text-slate-600">{label}</span>
+            <span className="text-[11px] text-slate-400 tabular-nums w-8 text-right">{b}</span>
+            <span className="text-[11px] font-black tabular-nums w-8 text-right text-[#03234b]">{a}</span>
+            <div className="flex items-center gap-1 w-16 justify-end">
+              {improved ? (
+                <><TrendingUp className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-black text-emerald-600">{sign}{delta}</span></>
+              ) : regressed ? (
+                <><TrendingDown className="w-3 h-3 text-red-400" /><span className="text-[10px] font-black text-red-500">{sign}{delta}</span></>
+              ) : (
+                <><Minus className="w-3 h-3 text-slate-300" /><span className="text-[10px] font-black text-slate-400">—</span></>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 grid grid-cols-[1fr_auto_auto_auto] gap-3">
+      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">字数</span>
+      <span className="text-[9px] text-slate-400 tabular-nums w-8 text-right">{before.wordCount}</span>
+      <span className="text-[9px] font-black text-[#03234b] tabular-nums w-8 text-right">{after.wordCount}</span>
+      <div className="w-16" />
+    </div>
+  </div>
+);
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+const ProductOutputTabs: React.FC<Props> = ({
+  content, analysis, schema,
   schemaStatus, schemaError,
-  onHumanize, onTranslate, 
-  isHumanizing, isTranslating, t 
+  onHumanize, onTranslate,
+  isHumanizing, isTranslating, t,
+  geoSignalsBefore, geoSignalsAfter,
 }) => {
   const [activeTab, setActiveTab] = React.useState<'preview' | 'analysis' | 'schema'>('preview');
   const [copied, setCopied] = React.useState(false);
@@ -159,6 +220,9 @@ const ProductOutputTabs: React.FC<Props> = ({
 
         {activeTab === 'analysis' && (
           <div className="space-y-6">
+            {geoSignalsBefore && geoSignalsAfter && (
+              <GeoAuditPanel before={geoSignalsBefore} after={geoSignalsAfter} />
+            )}
             <article className="prose prose-slate max-w-none prose-lg prose-p:mb-8 prose-p:leading-[1.85] prose-headings:font-black prose-headings:text-[#03234b] prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-10 prose-headings:mb-6 prose-h2:text-2xl prose-h3:text-xl prose-li:mb-4 prose-ul:my-6 prose-ol:my-6 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-blue-50 prose-blockquote:rounded-xl prose-hr:my-12">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis || t.production.emptyHint || 'Strategic analysis not found in model output.'}</ReactMarkdown>
             </article>

@@ -28,7 +28,12 @@ export interface WorkflowState {
   setDiagnosisConfirmed: (confirmed: boolean) => void;
   isRefiningStrategy: boolean;
   setIsRefiningStrategy: (refining: boolean) => void;
+  refinementStatus: 'idle' | 'pending' | 'success' | 'failed' | 'skipped';
+  setRefinementStatus: (status: 'idle' | 'pending' | 'success' | 'failed' | 'skipped') => void;
   updateDiagnosisResultStrategy: (strategy: import('../types').MarketStrategy) => void;
+  updateDiagnosisResultVerification: (verification: import('../types').ModelVerificationResult) => void;
+  updateDiagnosisResultMultiModel: (result: import('../services/multiModelService').MultiModelVerificationResult) => void;
+  updateAnchorVerifications: (verifications: import('../types').AnchorVerificationResult[]) => void;
 
   // Step 2: Strategy Data
   selectedPlaybooks: import('../types').StrategicPlaybookItem[]; 
@@ -37,8 +42,10 @@ export interface WorkflowState {
   setStrategyConfirmed: (confirmed: boolean) => void;
 
   // Step 3: Production Data
-  uploadedAssets: File[]; // RAG payload
+  uploadedAssets: File[]; // RAG payload (runtime only, not persisted)
   setUploadedAssets: (files: File[]) => void;
+  persistedSources: import('../types').PersistedRagSource[]; // Serialisable RAG sources (persisted)
+  setPersistedSources: (sources: import('../types').PersistedRagSource[]) => void;
   finalContent: string;
   setFinalContent: (content: string) => void;
 
@@ -70,8 +77,19 @@ export const useWorkflowStore = create<WorkflowState>()(
       setDiagnosisConfirmed: (confirmed) => set({ diagnosisConfirmed: confirmed }),
       isRefiningStrategy: false,
       setIsRefiningStrategy: (refining) => set({ isRefiningStrategy: refining }),
+      refinementStatus: 'idle',
+      setRefinementStatus: (status) => set({ refinementStatus: status }),
       updateDiagnosisResultStrategy: (strategy) => set((state) => ({
         diagnosisResult: state.diagnosisResult ? { ...state.diagnosisResult, marketStrategy: strategy } : null
+      })),
+      updateDiagnosisResultVerification: (verification) => set((state) => ({
+        diagnosisResult: state.diagnosisResult ? { ...state.diagnosisResult, modelVerification: verification } : null
+      })),
+      updateDiagnosisResultMultiModel: (result) => set((state) => ({
+        diagnosisResult: state.diagnosisResult ? { ...state.diagnosisResult, multiModelVerification: result } : null
+      })),
+      updateAnchorVerifications: (verifications) => set((state) => ({
+        diagnosisResult: state.diagnosisResult ? { ...state.diagnosisResult, anchorVerifications: verifications } : null
       })),
 
       selectedPlaybooks: [],
@@ -81,6 +99,8 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       uploadedAssets: [],
       setUploadedAssets: (files) => set({ uploadedAssets: files }),
+      persistedSources: [],
+      setPersistedSources: (sources) => set({ persistedSources: sources }),
       finalContent: '',
       setFinalContent: (content) => set({ finalContent: content }),
 

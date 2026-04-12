@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { AnalysisResult, StrategicPlaybookItem, MonitoringQuestion, MarketStrategy } from "../types";
+import type { AnalysisResult, MonitoringQuestion, MarketStrategy, PlaybookAnchorBundle, ModelVerificationResult, ModelClaimVerification, ScoredEvidenceSource, EvidenceAuthority, EvidenceRecency, AnchorVerificationResult } from "../types";
+import { buildContentPrompt } from "./promptBuilder";
 import { GEMINI_MODELS } from "../config/models";
 
 // Initialize with Runtime env (from server.js) or Vite env (built-in)
@@ -23,7 +24,7 @@ export const parseRetrySeconds = (err: any): number | null => {
     const inner = raw?.error?.message || raw?.message || '';
     const match = inner.match(/retry in ([\d.]+)s/i);
     if (match) return Math.ceil(parseFloat(match[1]));
-  } catch (_) {}
+  } catch { /* intentional: parse failure is non-fatal */ }
   return null;
 };
 
@@ -31,7 +32,7 @@ const is429 = (err: any): boolean => {
   try {
     const raw = typeof err?.message === 'string' ? JSON.parse(err.message) : err;
     return raw?.error?.code === 429 || raw?.error?.status === 'RESOURCE_EXHAUSTED';
-  } catch (_) { return false; }
+  } catch { return false; }
 };
 
 // Wraps any async API call with automatic 429 retry + countdown callback
@@ -147,6 +148,28 @@ Monitoring Question 2: "Can I swap M0+ for M33 without increasing my BOM cost?"
 Expected AI Anchor 2: "STM32C5 or $0.64 entry price cited"
 === END FEW-SHOT ===
 
+Step 3b: GEO Failure Diagnosis (FOR EACH INTENT CLUSTER — mandatory)
+After defining each Intent Cluster's monitoringQuestions, you MUST also output a failureDiagnosis object.
+Diagnose WHY the product currently fails to get cited by AI for this cluster's queries.
+
+Choose EXACTLY ONE primaryFailure from this taxonomy:
+
+CORPUS_ABSENCE      → AI draws a blank or hallucinates; this product/feature simply has no training signal.
+                      (Maps to: DATA_INTEGRITY + LOW_INFO_DENSITY in AgentGEO taxonomy)
+ATTRIBUTE_MISMATCH  → AI knows the product name but cites wrong spec/price/positioning (e.g. old datasheet values).
+BURIED_ANSWER       → The correct data exists in PDFs or datasheets but is not in crawlable/structured form.
+COMPETITOR_DOMINANCE→ Competing products have 10× higher corpus density on this exact query type.
+SEMANTIC_IRRELEVANCE→ Content uses "wireless MCU" but users ask "BLE SoC" — keyword semantic gap.
+OUTDATED_CONTENT    → AI retrieves 2+ year old pricing, EOL status, or superseded product positioning.
+TRUST_CREDIBILITY   → No GitHub stars, arXiv citations, official documentation, or community validation.
+STRUCTURAL_WEAKNESS → Content exists and is accurate but is buried in verbose paragraphs; no BLUF/snippet structure.
+UNKNOWN             → Cannot determine root cause from available signals.
+
+Also output:
+- severity: critical (AI actively misleads) / high (AI ignores) / medium (AI underranks) / low (marginal gap)
+- explanation: ONE concrete sentence specific to this cluster — name the exact symptom observed
+- repairUrgency: integer 1–10 where 10 = fix this immediately before any content production
+
 Step 4: Tactical Matrix (The Playbooks)
 - Tactics: [🛡️ Authority], [⚡ Scenario], [⚔️ Competitor].
 `;
@@ -202,9 +225,19 @@ const responseSchema = {
               },
               required: ["id", "userPrompt", "expectedAnchor"]
             }
+          },
+          failureDiagnosis: {
+            type: Type.OBJECT,
+            properties: {
+              primaryFailure: { type: Type.STRING },
+              severity: { type: Type.STRING },
+              explanation: { type: Type.STRING },
+              repairUrgency: { type: Type.NUMBER }
+            },
+            required: ["primaryFailure", "severity", "explanation", "repairUrgency"]
           }
         },
-        required: ["intentName", "coreProposition", "monitoringQuestions"]
+        required: ["intentName", "coreProposition", "monitoringQuestions", "failureDiagnosis"]
       }
     },
     competitorAnalysis: {
@@ -237,6 +270,7 @@ const responseSchema = {
           items: {
             type: Type.OBJECT,
             properties: {
+              anchorIds: { type: Type.ARRAY, items: { type: Type.STRING } },
               sourceLogic: { type: Type.STRING },
               tacticsType: { type: Type.STRING },
               contentPlatform: { type: Type.STRING },
@@ -244,7 +278,7 @@ const responseSchema = {
               geoAction: { type: Type.STRING },
               targetSnippet: { type: Type.STRING }
             },
-            required: ["sourceLogic", "tacticsType", "contentPlatform", "structuredDataStrategy", "geoAction", "targetSnippet"]
+            required: ["anchorIds", "sourceLogic", "tacticsType", "contentPlatform", "structuredDataStrategy", "geoAction", "targetSnippet"]
           }
         },
         competitorStrategy: {
@@ -252,6 +286,7 @@ const responseSchema = {
           items: {
             type: Type.OBJECT,
             properties: {
+              anchorIds: { type: Type.ARRAY, items: { type: Type.STRING } },
               sourceLogic: { type: Type.STRING },
               tacticsType: { type: Type.STRING },
               contentPlatform: { type: Type.STRING },
@@ -259,7 +294,7 @@ const responseSchema = {
               geoAction: { type: Type.STRING },
               targetSnippet: { type: Type.STRING }
             },
-            required: ["sourceLogic", "tacticsType", "contentPlatform", "structuredDataStrategy", "geoAction", "targetSnippet"]
+            required: ["anchorIds", "sourceLogic", "tacticsType", "contentPlatform", "structuredDataStrategy", "geoAction", "targetSnippet"]
           }
         },
         roleSpecificSops: {
@@ -332,74 +367,20 @@ export const analyzeContent = async (textInput: string, images: any[] = [], targ
   return parsed;
 };
 
-export const generateContentStream = async (platform: string, format: string, playbooks: StrategicPlaybookItem[], monitoringQuestions: MonitoringQuestion[], customPrompt: string, sourceContext: string, uiLang: string) => {
-  const hasPlaybooks = playbooks && playbooks.length > 0;
-  const playbookBlock = hasPlaybooks 
-    ? `INSPIRATION POOL (Strategic Context):
-The following tactical playbooks have been selected. Draw inspiration, logic angles, or arguments from them. *You do NOT need to artificially jam all of them into a single piece if it disrupts the narrative flow.* Use them to inform your phrasing and perspective:
-${JSON.stringify(playbooks, null, 2)}`
-    : `FREEFORM MODE: No strategic playbooks were selected. Generate content purely based on the Human Directive and RAG Grounding Materials below. Focus on providing maximum technical value and GEO-optimal structure.`;
-
-  const monitoringBlock = monitoringQuestions && monitoringQuestions.length > 0
-    ? `🎯 CRITICAL INTERCEPTION TARGETS (Mandatory Constraints):
-The user expects the final AI model to cite the following exact anchors when asked specific questions in the future. YOU MUST weave these <Expected Anchors> naturally but explicitly into your copy. Failure to include these anchors means failure of the task.
-${monitoringQuestions.map(q => `- TARGET FUTURE PROMPT: "${q.userPrompt}"\n  -> YOU MUST INJECT ANCHOR: "${q.expectedAnchor}"`).join('\n')}`
-    : '';
-
-  const prompt = `CRITICAL ASSIGNMENT:
-Write high-converting, deeply technical content tailored for deployment on the platform/ecosystem: [${platform}]. 
-CRUCIAL FORMAT REQUIREMENT: You MUST strictly adhere to the structure and length of this specific Format Type: [${format}].
-
-LANGUAGE STRICTNESS: The entire output MUST be written exclusively in: [${uiLang}]. Do NOT mix languages.
-
-${monitoringBlock}
-
-${playbookBlock}
-
-${customPrompt ? `\n🔥 HUMAN DIRECTIVE / OVERRIDE:\n${customPrompt}\n` : ''}
-
----
-
-## 🚨 MANDATORY: ZERO-HALLUCINATION PROTOCOL (GEO-SPECIFIC)
-1. **SOURCE-ONLY FACT BASE**: Every technical specific (prices, model numbers, performance stats) MUST be derived from the "Grounding Materials" provided below.
-2. **STRICT ATTRIBUTION**: You MUST explicitly map every major technical claim to its source in the appendix.
-3. **NO FABRICATION**: If a specific data point (e.g. precise latency) is not in the source, you MUST state "Technical details not found in reference material" instead of assuming.
-
-## 📐 GEO STRUCTURAL REQUIREMENTS
-1. **INVERTED PYRAMID**: Lead with the most important facts/answers first.
-2. **SNIPPET OPTIMIZATION**: The first 150 characters MUST be highly descriptive for AI extraction.
-3. **SEMANTIC ENRICHMENT**: Use high-weight industry terms found in the source.
-
----
-
-Grounding Materials (Source Base): 
-${sourceContext}
-
----
-
-## OUTPUT FORMAT INSTRUCTIONS:
-
-**PART 1: THE ARTICLE CONTENT**
-Write the full article content first. You MUST start with a clear # H1 Heading as the title.
-
-**PART 2: SEPARATOR**
-Exactly: ===GEO_ANALYSIS===
-
-**PART 3: ANALYTICAL APPENDIX & TRUST LOG**
-### 🔍 Optimization Breakdown
-- **Strategy Selected**: ${hasPlaybooks ? 'Strategic Pillars Applied' : 'Standard RAG Improvement'}
-- **Vectorization Strategy**: [Keywords for high retrieval relevance]
-
-### 📈 GEO Performance Forecast
-- **RAG Citation Potential**: [High/Medium/Low]
-- **Reasoning**: [Technical justification]
-
-### 📜 SOURCE EVIDENCE LOG (TRUST CREDENTIALS)
-**YOU MUST MAP EVERY TECHNICAL CLAIM TO A SOURCE PROVIDED IN THE CONTEXT ABOVE:**
-- [Claim A] -> Source: [Exact Source Title or Identifier from Context]
-- [Claim B] -> Source: [Exact Source Title or Identifier from Context]
-
-===END===`;
+export const generateContentStream = async (
+  platform: string,
+  format: string,
+  bundles: PlaybookAnchorBundle[],
+  orphanAnchors: MonitoringQuestion[],
+  customPrompt: string,
+  sourceContext: string,
+  uiLang: string,
+  focusedMode: boolean = false,
+  selectedMethods: import('./geoMethods').GeoMethodId[] = []
+) => {
+  const prompt = buildContentPrompt({
+    platform, format, bundles, orphanAnchors, customPrompt, sourceContext, uiLang, focusedMode, selectedMethods,
+  });
 
   const response = await genAI.models.generateContentStream({
     model: GEMINI_MODELS.contentGen,
@@ -524,7 +505,8 @@ TASK: Generate a high-precision Narrative Strategy Playbook [Step 2] based on th
 4. **Structured Data Precision**: Suggest the EXACT schema or table format (e.g., "A 3-column performance-to-cost table comparing M0+ and M33") rather than generic advice.
 
 ### 🎯 SELECTED INTERCEPTION TARGETS (FROM STEP 1):
-${selectedTargets.map((t, i) => `Target ${i+1}: 
+${selectedTargets.map((t, i) => `Target ${i+1}:
+ - ID: "${t.id}"
  - User Prompt: "${t.userPrompt}"
  - Mandatory Anchor: "${t.expectedAnchor}"`).join('\n')}
 
@@ -537,6 +519,7 @@ You must return a VALID JSON object matching this structure:
   },
   "implicitIntentStrategy": [
      {
+       "anchorIds": ["<id of the target(s) this playbook directly addresses, from the list above>"],
        "sourceLogic": "How the core technical logic answers the target prompt",
        "tacticsType": "Scenario/Authority/Counter-Competitor",
        "contentPlatform": "Recommended platform (e.g. Technical Forum/Wiki)",
@@ -546,7 +529,7 @@ You must return a VALID JSON object matching this structure:
      }
   ],
   "competitorStrategy": [
-     // Same structure as above, but focused on displacing specific competitors for these targets
+     // Same structure as above (including anchorIds), but focused on displacing specific competitors for these targets
   ],
   "roleSpecificSops": [
      {
@@ -583,39 +566,252 @@ export const fetchUrlContent = async (url: string) => {
   return { title: url, content: text, wordCount: text.split(/\s+/).length };
 };
 
+// ─── Evidence Quality Scoring Helpers ────────────────────────────────────────
+
+const HIGH_AUTHORITY_DOMAINS = [
+  'github.com', 'arxiv.org', 'ieee.org', 'acm.org', 'nature.com',
+  'st.com', 'nxp.com', 'ti.com', 'arm.com', 'mouser.com', 'digikey.com',
+  'developer.android.com', 'docs.microsoft.com', 'developer.apple.com',
+  'npmjs.com', 'pypi.org', 'crates.io', 'docs.rs',
+];
+const MEDIUM_AUTHORITY_DOMAINS = [
+  'stackoverflow.com', 'reddit.com', 'hackernews.com', 'medium.com',
+  'dev.to', 'csdn.net', 'zhihu.com', 'qiita.com',
+];
+
+function scoreAuthority(uris: string[]): EvidenceAuthority {
+  for (const uri of uris) {
+    try {
+      const host = new URL(uri).hostname.replace('www.', '');
+      if (HIGH_AUTHORITY_DOMAINS.some(d => host === d || host.endsWith('.' + d))) return 'high';
+    } catch { /* invalid URL */ }
+  }
+  for (const uri of uris) {
+    try {
+      const host = new URL(uri).hostname.replace('www.', '');
+      if (MEDIUM_AUTHORITY_DOMAINS.some(d => host === d || host.endsWith('.' + d))) return 'medium';
+    } catch { /* invalid URL */ }
+  }
+  return uris.length > 0 ? 'medium' : 'low';
+}
+
+function scoreRecency(uris: string[]): EvidenceRecency {
+  const currentYear = new Date().getFullYear();
+  for (const uri of uris) {
+    // Look for year patterns in URL path: /2024/, /2025/, ?year=2024, etc.
+    const yearMatch = uri.match(/[/=_-](20\d{2})[/=_-]/);
+    if (yearMatch) {
+      const year = parseInt(yearMatch[1]);
+      return year >= currentYear - 1 ? 'fresh' : 'stale';
+    }
+  }
+  return 'unknown';
+}
+
+function scoreAnchorMatch(content: string, anchor: string): boolean {
+  // Check if the key terms from the anchor appear in the returned content
+  const anchorTerms = anchor.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+  const contentLower = content.toLowerCase();
+  const matchCount = anchorTerms.filter(term => contentLower.includes(term)).length;
+  return anchorTerms.length > 0 && matchCount / anchorTerms.length >= 0.5;
+}
+
+function computeScore(authority: EvidenceAuthority, recency: EvidenceRecency, anchorMatch: boolean): number {
+  const a = authority === 'high' ? 0.5 : authority === 'medium' ? 0.3 : 0.1;
+  const r = recency === 'fresh' ? 0.3 : recency === 'unknown' ? 0.15 : 0.0;
+  const m = anchorMatch ? 0.2 : 0.0;
+  return Math.round((a + r + m) * 100) / 100;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Deep Evidence Grounding for Step 3.
- * Specifically targets the anchors chosen in Step 2 to find "hard evidence".
+ * Finds hard evidence for each anchor and scores each source by
+ * authority, recency, and anchor-keyword match.
+ * Results are sorted by score (highest first) so the prompt builder
+ * injects the most credible sources at the top.
  */
-export const deepEvidenceGrounding = async (anchors: string[]): Promise<any[]> => {
+export const deepEvidenceGrounding = async (anchors: string[]): Promise<ScoredEvidenceSource[]> => {
   if (!anchors || anchors.length === 0) return [];
-  
-  const results = await Promise.all(anchors.map(async (anchor) => {
+
+  const results = await Promise.all(anchors.map(async (anchor): Promise<ScoredEvidenceSource | null> => {
     try {
       const gResult = await genAI.models.generateContent({
         model: GEMINI_MODELS.grounding,
         contents: [{ role: 'user', parts: [{ text: `DEEP FACT CHECK: Find authoritative technical specifications, official prices, or performance figures for: "${anchor}". Priority: Official Whitepapers, Wiki, or Technical Forums. Summarize the hard data found.` }] }],
         config: { tools: [{ googleSearch: {} } as any] }
       });
-      
+
       const content = gResult.text || '';
-      let urls: any[] = [];
+      const urls: { title: string; uri: string }[] = [];
       if ((gResult as any).groundingMetadata?.groundingChunks) {
-        urls = (gResult as any).groundingMetadata.groundingChunks
-          .map((c: any) => c.web).filter(Boolean).map((w: any) => ({ title: w.title, uri: w.uri }));
+        (gResult as any).groundingMetadata.groundingChunks
+          .map((c: any) => c.web).filter(Boolean)
+          .forEach((w: any) => urls.push({ title: w.title || '', uri: w.uri || '' }));
       }
-      
-      return { 
-        name: `Deep Evidence: ${anchor.slice(0, 30)}...`, 
-        content, 
+
+      const uris = urls.map(u => u.uri);
+      const authority  = scoreAuthority(uris);
+      const recency    = scoreRecency(uris);
+      const anchorMatch = scoreAnchorMatch(content, anchor);
+      const score      = computeScore(authority, recency, anchorMatch);
+
+      return {
+        name: `Deep Evidence: ${anchor.slice(0, 40)}`,
+        content,
         type: 'system',
-        urls 
+        urls,
+        quality: { authority, recency, anchorMatch, score },
       };
     } catch (err) {
-      console.warn(`Deep grounding failed for ${anchor}:`, err);
+      console.warn(`Deep grounding failed for "${anchor}":`, err);
       return null;
     }
   }));
-  
-  return results.filter(Boolean);
+
+  return (results.filter(Boolean) as ScoredEvidenceSource[])
+    .sort((a, b) => b.quality.score - a.quality.score); // best sources first
+};
+
+/**
+ * Multi-Model Verification Layer.
+ *
+ * The main analysis uses a single Gemini model to *simulate* how other AI models
+ * (DeepSeek, Kimi, 百度, etc.) perceive a product. This function runs a secondary
+ * Google Search grounding pass to find real-world evidence for those simulated
+ * claims, producing a confidence score and source attribution.
+ *
+ * Does NOT call third-party model APIs — verifies whether claimed model preferences
+ * are reflected in public discourse (forums, tech articles, official docs), which
+ * is a realistic proxy for what those models were actually trained on.
+ */
+/**
+ * Anchor Verification — validates that each expectedAnchor actually exists in
+ * public sources, using Google Search grounding.
+ *
+ * Status logic:
+ *   verified  → search returned ≥1 URL and anchor keywords found in content
+ *   partial   → URLs found but anchor keywords not clearly present in content
+ *   unverified → no URLs returned (anchor may be fabricated or too obscure)
+ *
+ * Results are stored in diagnosisResult.anchorVerifications and shown in
+ * StepDiagnosis so the user can demote unverified anchors before proceeding.
+ */
+export const verifyAnchors = async (
+  questions: MonitoringQuestion[]
+): Promise<AnchorVerificationResult[]> => {
+  if (!questions || questions.length === 0) return [];
+
+  const results = await Promise.all(
+    questions.map(async (q): Promise<AnchorVerificationResult> => {
+      try {
+        const gResult = await genAI.models.generateContent({
+          model: GEMINI_MODELS.grounding,
+          contents: [{ role: 'user', parts: [{ text: `Search for real-world evidence of this specific technical fact or entity: "${q.expectedAnchor}". Return any authoritative sources (official docs, datasheets, whitepapers, forum posts) that confirm it exists. Be direct — only state what the sources say.` }] }],
+          config: { tools: [{ googleSearch: {} } as any] }
+        });
+
+        const content = gResult.text || '';
+        const urls: string[] = [];
+        if ((gResult as any).groundingMetadata?.groundingChunks) {
+          (gResult as any).groundingMetadata.groundingChunks
+            .map((c: any) => c.web?.uri).filter(Boolean)
+            .forEach((uri: string) => urls.push(uri));
+        }
+
+        const anchorMatch = scoreAnchorMatch(content, q.expectedAnchor);
+        const hasUrls = urls.length > 0;
+
+        const status: AnchorVerificationResult['status'] =
+          hasUrls && anchorMatch ? 'verified'
+          : hasUrls              ? 'partial'
+          :                        'unverified';
+
+        const confidence =
+          status === 'verified'   ? 0.85 + Math.min(urls.length * 0.03, 0.15)
+          : status === 'partial'  ? 0.4
+          :                         0.05;
+
+        return { anchorId: q.id, anchor: q.expectedAnchor, status, supportingUrls: urls.slice(0, 3), confidence };
+      } catch {
+        return { anchorId: q.id, anchor: q.expectedAnchor, status: 'unverified', supportingUrls: [], confidence: 0 };
+      }
+    })
+  );
+
+  return results;
+};
+
+export const verifyModelClaims = async (
+  marketPulseText: string,
+  ecosystem: string
+): Promise<ModelVerificationResult> => {
+  const disclaimer =
+    ecosystem === 'cn'
+      ? '以下多模型认知分析由 Gemini 推理模拟生成，非实时调用 DeepSeek / Kimi / 百度等模型 API。验证层通过 Google Search 抓取公开语料，佐证上述推断的可信度。'
+      : ecosystem === 'jp'
+      ? '以下のマルチモデル分析は Gemini によるシミュレーションです。Yahoo/Line AI・Claude 3 への直接クエリではありません。検証レイヤーは Google 検索で公開コーパスからエビデンスを収集します。'
+      : 'The multi-model analysis below is simulated by Gemini — it does NOT reflect real-time queries to DeepSeek, Kimi, Doubao, or other ecosystem models. The verification layer uses Google Search grounding to find public evidence supporting these inferences.';
+
+  // Step 1: Ask Gemini to extract 2-3 concrete, searchable claims from marketPulse
+  const claimExtractionPrompt = `From this AI market analysis, extract exactly 2-3 specific verifiable claims about how named AI models perceive or recommend specific products/technologies.
+Return ONLY a JSON array of short search query strings that would verify each claim.
+Example: ["DeepSeek STM32C5 low-cost M33 recommendation 2024", "Kimi BLE Matter chip preference embedded"]
+
+Text:
+${marketPulseText.slice(0, 800)}
+
+Return ONLY the JSON array. No markdown fences.`;
+
+  let searchQueries: string[] = [];
+  try {
+    const extractRes = await genAI.models.generateContent({
+      model: GEMINI_MODELS.grounding,
+      contents: [{ role: 'user', parts: [{ text: claimExtractionPrompt }] }],
+      config: { responseMimeType: 'application/json' }
+    });
+    const raw = (extractRes.text || '[]').replace(/```(?:json)?\s*([\s\S]*?)\s*```/i, '$1').trim();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) searchQueries = parsed.slice(0, 3);
+  } catch {
+    // Fallback: generic ecosystem search query
+    const fallbackTerm = ecosystem === 'cn' ? 'DeepSeek Kimi' : ecosystem === 'jp' ? 'Yahoo AI Japan' : 'ChatGPT Perplexity';
+    searchQueries = [`${fallbackTerm} product recommendation analysis`];
+  }
+
+  // Step 2: Google Search grounding for each claim
+  const verifiedClaims: ModelClaimVerification[] = await Promise.all(
+    searchQueries.map(async (query): Promise<ModelClaimVerification> => {
+      try {
+        const gResult = await genAI.models.generateContent({
+          model: GEMINI_MODELS.grounding,
+          contents: [{ role: 'user', parts: [{ text: `Find public evidence (tech forums, articles, official docs) supporting or refuting: "${query}". Summarize what you find.` }] }],
+          config: { tools: [{ googleSearch: {} } as any] }
+        });
+        const urls: string[] = [];
+        if ((gResult as any).groundingMetadata?.groundingChunks) {
+          (gResult as any).groundingMetadata.groundingChunks
+            .map((c: any) => c.web?.uri)
+            .filter(Boolean)
+            .slice(0, 3)
+            .forEach((uri: string) => urls.push(uri));
+        }
+        return { claim: query, evidenceFound: urls.length > 0, sourceUrls: urls };
+      } catch {
+        return { claim: query, evidenceFound: false, sourceUrls: [] };
+      }
+    })
+  );
+
+  // Step 3: Score overall confidence
+  const verifiedCount = verifiedClaims.filter(c => c.evidenceFound).length;
+  const total = verifiedClaims.length;
+  const confidence: ModelVerificationResult['confidence'] =
+    total === 0          ? 'unverified'
+    : verifiedCount === total ? 'high'
+    : verifiedCount >= Math.ceil(total / 2) ? 'medium'
+    : 'low';
+
+  return { disclaimer, confidence, verifiedClaims, searchedAt: new Date().toISOString() };
 };

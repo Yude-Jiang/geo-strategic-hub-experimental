@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWorkflowStore } from '../store/workflowStore';
-import { analyzeContent, withRetry, refineStrategy } from '../services/geminiService';
+import { analyzeContent, withRetry, refineStrategy, verifyModelClaims, verifyAnchors } from '../services/geminiService';
+import { runMultiModelVerification } from '../services/multiModelService';
 import type { TranslationKeys } from '../i18n/translations';
 import { 
   Search, Loader2, CheckCircle2, ChevronRight, 
@@ -34,6 +35,10 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
   const isRefiningStrategy = useWorkflowStore(state => state.isRefiningStrategy);
   const setIsRefiningStrategy = useWorkflowStore(state => state.setIsRefiningStrategy);
   const updateDiagnosisResultStrategy = useWorkflowStore(state => state.updateDiagnosisResultStrategy);
+  const setRefinementStatus = useWorkflowStore(state => state.setRefinementStatus);
+  const updateDiagnosisResultVerification = useWorkflowStore(state => state.updateDiagnosisResultVerification);
+  const updateDiagnosisResultMultiModel = useWorkflowStore(state => state.updateDiagnosisResultMultiModel);
+  const updateAnchorVerifications = useWorkflowStore(state => state.updateAnchorVerifications);
 
   const [inputText, setInputText] = useState(seedKeywords.join('\n'));
   const [regionOverride, setRegionOverride] = useState('');
@@ -72,10 +77,26 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
         }
       );
       setDiagnosisResult(data);
+
+      // ── Background verification (non-blocking, best-effort) ──────────────
+      // 1. Gemini-grounded claim check (Google Search evidence)
+      verifyModelClaims(
+        data.strategyReport?.executiveSummary?.marketPulse || '',
+        targetEcosystem
+      ).then(v => updateDiagnosisResultVerification(v)).catch(() => {});
+
+      // 2. Real CN model parallel probe — only for CN ecosystem
+      if (targetEcosystem === 'cn') {
+        runMultiModelVerification(inputText, uiLang)
+          .then(r => updateDiagnosisResultMultiModel(r))
+          .catch(() => {});
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
     } catch (err: any) {
       let msg = err.message || 'Analysis failed.';
       if (msg.includes('Failed to fetch')) {
-        msg = 'Failed to fetch. 您的网络可能无法直连 Google API，请检查全局代理或 VPN 状态。';
+        msg = `Failed to fetch. ${t.diagnosis.fetchError}`;
       }
       setError({ message: msg, code: err.code });
     } finally {
@@ -101,19 +122,29 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
     // Only refine if something is chosen, otherwise skip
     if (confirmed.length > 0) {
       setIsRefiningStrategy(true);
+      setRefinementStatus('pending');
       try {
         const refinedStrategy = await withRetry(
           () => refineStrategy(confirmed, uiLang),
-          () => {
-             // Handle retry if needed
-          }
+          () => {}
         );
         updateDiagnosisResultStrategy(refinedStrategy);
+        setRefinementStatus('success');
       } catch (err) {
-        console.error("Strategy refinement failed, proceeding with default", err);
+        console.error('Strategy refinement failed, proceeding with default strategy', err);
+        setRefinementStatus('failed');
       } finally {
         setIsRefiningStrategy(false);
       }
+    } else {
+      setRefinementStatus('skipped');
+    }
+
+    // Kick off anchor verification in background — results appear in Step 2 monitoring list
+    if (confirmed.length > 0) {
+      verifyAnchors(confirmed)
+        .then(v => updateAnchorVerifications(v))
+        .catch(() => {});
     }
 
     setDiagnosisConfirmed(true);
@@ -169,7 +200,7 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
           <div className="space-y-4">
             <div>
               <label className="block text-[11px] font-black text-[#8191a5] uppercase tracking-wider mb-2">
-                国家/区域 {t.diagnosis.regionLabel && `(${t.diagnosis.regionLabel})`}
+                {t.diagnosis.regionLabel}
               </label>
               <input
                 className="w-full bg-[#0a3d7a]/60 border border-[#3cb4e6]/20 rounded-xl p-3 text-white placeholder-[#8191a5]/50 text-sm focus:outline-none focus:ring-2 focus:ring-[#3cb4e6]"
@@ -252,6 +283,133 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
             </div>
           </div>
 
+          {/* ── Multi-Model Real Verification Panel ───────────────────── */}
+          {(() => {
+            const mmv = diagnosisResult.multiModelVerification;
+            const mv  = diagnosisResult.modelVerification;
+
+            // Colour coding for consensus level
+            const consensusColor: Record<string, string> = {
+              full:        'bg-emerald-50 border-emerald-200 text-emerald-700',
+              partial:     'bg-amber-50 border-amber-200 text-amber-700',
+              divergent:   'bg-rose-50 border-rose-200 text-rose-700',
+              insufficient:'bg-slate-50 border-slate-200 text-slate-500',
+            };
+            const confidenceColor: Record<string, string> = {
+              high:       'text-emerald-600',
+              medium:     'text-amber-600',
+              low:        'text-rose-600',
+              unverified: 'text-slate-400',
+            };
+
+            return (
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-[#0a3d7a] to-[#03234b] p-5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-[#ffd200]" />
+                    <h3 className="font-black uppercase tracking-widest text-sm text-white">
+                      CN 生态认知探针
+                    </h3>
+                  </div>
+                  {/* Disclaimer badge */}
+                  <span className="text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-1 rounded-full uppercase tracking-wider">
+                    Simulated + Real
+                  </span>
+                </div>
+
+                <div className="p-6 space-y-5">
+                  {/* Disclaimer */}
+                  {mv && (
+                    <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-[11px] font-black text-amber-700 uppercase tracking-wider mb-1">
+                          Simulation Disclaimer
+                        </p>
+                        <p className="text-xs text-amber-800 leading-relaxed">{mv.disclaimer}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-[10px] font-bold text-amber-600 uppercase">Google Search Confidence:</span>
+                          <span className={`text-[11px] font-black uppercase ${confidenceColor[mv.confidence] || 'text-slate-400'}`}>
+                            {mv.confidence}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Real model responses */}
+                  {mmv ? (
+                    <>
+                      {/* Consensus badge */}
+                      <div className={`flex items-center justify-between border rounded-xl px-4 py-3 ${consensusColor[mmv.consensusLevel] || consensusColor.insufficient}`}>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider mb-0.5">跨模型认知共识</p>
+                          <p className="text-xs font-semibold leading-snug">{mmv.consensusSummary}</p>
+                        </div>
+                        <span className="text-xs font-black uppercase px-3 py-1 rounded-full border ml-4 flex-shrink-0
+                          border-current opacity-80">
+                          {mmv.consensusLevel}
+                        </span>
+                      </div>
+
+                      {/* Per-model cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {mmv.snapshots.map(snap => (
+                          <div key={snap.modelId} className={`rounded-xl border p-4 ${snap.error ? 'border-slate-200 bg-slate-50' : 'border-[#3cb4e6]/20 bg-[#f0f9ff]'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-black text-[#03234b] uppercase">{snap.modelName}</span>
+                              {snap.error
+                                ? <span className="text-[10px] text-rose-500 font-bold">⚠ {snap.error}</span>
+                                : <span className="text-[10px] text-slate-400 font-medium">{snap.latencyMs}ms</span>
+                              }
+                            </div>
+                            {snap.error ? (
+                              <p className="text-xs text-slate-400 italic">No response — check API key in .env.local</p>
+                            ) : (
+                              <>
+                                <p className="text-xs text-slate-600 leading-relaxed line-clamp-4 mb-3">
+                                  {snap.rawResponse}
+                                </p>
+                                {snap.keyEntities.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {snap.keyEntities.slice(0, 8).map(e => (
+                                      <span key={e} className="text-[10px] bg-[#3cb4e6]/10 text-[#0a3d7a] border border-[#3cb4e6]/20 px-2 py-0.5 rounded-full font-bold">
+                                        {e}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  Sentiment: <span className={
+                                    snap.sentiment === 'positive' ? 'text-emerald-500'
+                                    : snap.sentiment === 'negative' ? 'text-rose-500'
+                                    : snap.sentiment === 'mixed' ? 'text-amber-500'
+                                    : 'text-slate-400'
+                                  }>{snap.sentiment}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 text-right">
+                        Verified at {new Date(mmv.verifiedAt).toLocaleTimeString()}
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-3 text-slate-400 text-xs py-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Querying DeepSeek &amp; Qwen in background...
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+          {/* ── End Multi-Model Panel ────────────────────────────────── */}
+
           {/* Competitor AI Threat Matrix */}
           {diagnosisResult.competitorAnalysis && diagnosisResult.competitorAnalysis.length > 0 && (
             <div className="space-y-4 pt-4">
@@ -308,9 +466,71 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
             </div>
             <div className="grid grid-cols-1 gap-8">
               {diagnosisResult.intentClusters?.map((cluster, cIdx) => (
-                <div key={cIdx} className="bg-white rounded-3xl shadow-xl border border-slate-100 flex flex-col md:flex-row overflow-hidden hover:shadow-2xl transition-all">
+                <div key={cIdx} className={`bg-white rounded-3xl shadow-xl border flex flex-col md:flex-row overflow-hidden hover:shadow-2xl transition-all ${
+                  cluster.failureDiagnosis?.severity === 'critical' ? 'border-red-200' :
+                  cluster.failureDiagnosis?.severity === 'high'     ? 'border-orange-200' :
+                  'border-slate-100'
+                }`}>
                   <div className="w-full md:w-80 bg-slate-50 p-8 border-r border-slate-100">
-                    <h4 className="text-xl font-black text-[#03234b] mb-4 uppercase">{cluster.intentName}</h4>
+                    <h4 className="text-xl font-black text-[#03234b] mb-3 uppercase">{cluster.intentName}</h4>
+
+                    {/* ── Failure Diagnosis Badge ── */}
+                    {cluster.failureDiagnosis && (() => {
+                      const fd = cluster.failureDiagnosis;
+                      const FAILURE_COLORS: Record<string, string> = {
+                        CORPUS_ABSENCE:       'bg-red-100 text-red-700 border-red-200',
+                        ATTRIBUTE_MISMATCH:   'bg-orange-100 text-orange-700 border-orange-200',
+                        COMPETITOR_DOMINANCE: 'bg-red-50 text-red-600 border-red-100',
+                        BURIED_ANSWER:        'bg-yellow-100 text-yellow-700 border-yellow-200',
+                        SEMANTIC_IRRELEVANCE: 'bg-purple-100 text-purple-700 border-purple-200',
+                        OUTDATED_CONTENT:     'bg-blue-100 text-blue-700 border-blue-200',
+                        TRUST_CREDIBILITY:    'bg-slate-100 text-slate-600 border-slate-200',
+                        STRUCTURAL_WEAKNESS:  'bg-amber-100 text-amber-700 border-amber-200',
+                        UNKNOWN:              'bg-slate-50  text-slate-400 border-slate-100',
+                      };
+                      const SEVERITY_DOT: Record<string, string> = {
+                        critical: 'bg-red-500',
+                        high:     'bg-orange-400',
+                        medium:   'bg-yellow-400',
+                        low:      'bg-slate-300',
+                      };
+                      const colorClass = FAILURE_COLORS[fd.primaryFailure] ?? FAILURE_COLORS.UNKNOWN;
+                      const dotClass   = SEVERITY_DOT[fd.severity] ?? 'bg-slate-300';
+                      const urgencyBar = Math.round((fd.repairUrgency / 10) * 100);
+                      return (
+                        <div className="mb-4 space-y-2">
+                          {/* Category badge + urgency */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border tracking-widest ${colorClass}`}>
+                              {fd.primaryFailure.replace(/_/g, ' ')}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                {fd.severity}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Repair urgency bar */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${fd.repairUrgency >= 8 ? 'bg-red-500' : fd.repairUrgency >= 5 ? 'bg-orange-400' : 'bg-emerald-400'}`}
+                                style={{ width: `${urgencyBar}%` }}
+                              />
+                            </div>
+                            <span className="text-[9px] font-black text-slate-500 whitespace-nowrap">
+                              Urgency {fd.repairUrgency}/10
+                            </span>
+                          </div>
+                          {/* One-line explanation */}
+                          <p className="text-[10px] text-slate-500 leading-relaxed italic">
+                            {fd.explanation}
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     <div>
                       <h5 className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1"><Info className="w-3 h-3" /> Core Proposition</h5>
                       <p className="text-xs text-[#03234b] font-bold leading-relaxed">{cluster.coreProposition}</p>
@@ -333,7 +553,29 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
                             {selectedItems.has(q.id) ? <CheckCircle2 className="w-5 h-5 text-[#3cb4e6]" /> : <div className="border-2 border-slate-200 rounded-full w-5 h-5 group-hover:border-[#3cb4e6]/50 transition-colors" />}
                           </div>
                           <div className="col-span-6 text-sm font-black text-[#03234b] leading-snug">{q.userPrompt}</div>
-                          <div className="col-span-5 text-xs font-bold text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg border border-emerald-100/50 font-mono break-words">{q.expectedAnchor}</div>
+                          <div className="col-span-5 flex flex-col gap-1.5">
+                            <div className="text-xs font-bold text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg border border-emerald-100/50 font-mono break-words">
+                              {q.expectedAnchor}
+                            </div>
+                            {(() => {
+                              const av = diagnosisResult.anchorVerifications?.find(v => v.anchorId === q.id);
+                              if (!av) return (
+                                <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                                  <Loader2 className="w-3 h-3 animate-spin" /> Verifying anchor...
+                                </span>
+                              );
+                              const cfg = {
+                                verified:   { cls: 'text-emerald-600 bg-emerald-50 border-emerald-200', icon: '✓', label: `Verified (${Math.round(av.confidence * 100)}%)` },
+                                partial:    { cls: 'text-amber-600 bg-amber-50 border-amber-200',   icon: '~', label: `Partial match (${Math.round(av.confidence * 100)}%)` },
+                                unverified: { cls: 'text-rose-600 bg-rose-50 border-rose-200',       icon: '✗', label: 'Unverified — use with caution' },
+                              }[av.status];
+                              return (
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border w-fit ${cfg.cls}`}>
+                                  {cfg.icon} {cfg.label}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </label>
                       ))}
                     </div>
@@ -381,11 +623,20 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
               <Zap className="w-10 h-10 text-[#ffd200] animate-pulse" />
             </div>
           </div>
-          <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-3 text-center">战役指挥室设计中...</h2>
+          <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-3 text-center">
+            {(t.diagnosis as any).battleRoomTitle}
+          </h2>
           <p className="text-[#8191a5] font-bold text-sm max-w-md text-center leading-relaxed">
-            正在为您勾选的 <span className="text-[#3cb4e6] font-black">{selectedMonitoringQuestions.length}</span> 个战略拦截靶标定制专属战术剧本。
+            {(t.diagnosis as any).battleRoomSub.split('{count}').map((part: string, index: number, array: string[]) => (
+              <React.Fragment key={index}>
+                {part}
+                {index < array.length - 1 && (
+                  <span className="text-[#3cb4e6] font-black">{selectedMonitoringQuestions.length}</span>
+                )}
+              </React.Fragment>
+            ))}
             <br />
-            精确對齐 GEO 框架中...
+            {(t.diagnosis as any).battleRoomAlign}
           </p>
           <div className="mt-8 flex gap-2">
             {[0, 1, 2].map(i => (
