@@ -9,9 +9,15 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 // Dynamic endpoint for runtime environment variables (Secret Manager)
+// All VITE_ keys are injected here so Cloud Run / Aliyun SAE env vars
+// take effect at runtime without requiring a rebuild.
 app.get('/config.js', (req, res) => {
   const envVars = {
-    VITE_GEMINI_API_KEY: process.env.VITE_GEMINI_API_KEY || ''
+    VITE_GEMINI_API_KEY:   process.env.VITE_GEMINI_API_KEY   || '',
+    VITE_DEEPSEEK_API_KEY: process.env.VITE_DEEPSEEK_API_KEY || '',
+    VITE_QWEN_API_KEY:     process.env.VITE_QWEN_API_KEY     || '',
+    VITE_DOUBAO_API_KEY:   process.env.VITE_DOUBAO_API_KEY   || '',
+    VITE_Kimi_API_KEY:     process.env.VITE_Kimi_API_KEY     || '',
   };
   res.set('Content-Type', 'application/javascript');
   res.send(`window.env = ${JSON.stringify(envVars)};`);
