@@ -53,6 +53,10 @@ export interface WorkflowState {
   chatHistory: { role: 'user' | 'assistant', content: string }[];
   addChatMessage: (msg: { role: 'user' | 'assistant', content: string }) => void;
   clearChatHistory: () => void;
+
+  // Standalone Mode
+  standaloneMode: boolean;
+  setStandaloneMode: (mode: boolean) => void;
 }
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -107,6 +111,9 @@ export const useWorkflowStore = create<WorkflowState>()(
       chatHistory: [],
       addChatMessage: (msg) => set((state) => ({ chatHistory: [...state.chatHistory, msg] })),
       clearChatHistory: () => set({ chatHistory: [] }),
+
+      standaloneMode: false,
+      setStandaloneMode: (mode) => set({ standaloneMode: mode }),
     }),
     {
       name: 'geo-hub-storage', // saves to localStorage

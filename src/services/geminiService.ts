@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { AnalysisResult, MonitoringQuestion, MarketStrategy, PlaybookAnchorBundle, ModelVerificationResult, ModelClaimVerification, ScoredEvidenceSource, EvidenceAuthority, EvidenceRecency, AnchorVerificationResult } from "../types";
 import { buildContentPrompt } from "./promptBuilder";
+import { buildMethodDirectives } from "./geoMethods";
+import type { GeoMethodId } from "./geoMethods";
 import { GEMINI_MODELS } from "../config/models";
 
 // Initialize with Runtime env (from server.js) or Vite env (built-in)
@@ -815,3 +817,99 @@ Return ONLY the JSON array. No markdown fences.`;
 
   return { disclaimer, confidence, verifiedClaims, searchedAt: new Date().toISOString() };
 };
+
+// ─── Standalone GEO Content Optimizer ────────────────────────────────────────
+
+function buildOptimizePrompt({
+  existingContent,
+  methodDirectives,
+  platform,
+  format,
+  userDirective,
+  uiLang,
+}: {
+  existingContent: string;
+  methodDirectives: string;
+  platform: string;
+  format: string;
+  userDirective: string;
+  uiLang: string;
+}): string {
+  const directive = userDirective.trim()
+    ? `\nUSER DIRECTIVE: ${userDirective.trim()}`
+    : '';
+
+  return `ROLE: Elite GEO (Generative Engine Optimization) Content Optimizer / Editor.
+TASK: Rewrite and strengthen the provided content to maximize its probability of being cited, quoted, and recommended by AI language models in response to future user queries.
+
+TARGET PLATFORM: [${platform}]
+FORMAT TYPE: [${format}] — Strictly adhere to the structure and length norms of this format.
+OUTPUT LANGUAGE: [${uiLang}] — The ENTIRE output MUST be in this language. Do not mix languages.${directive}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  ZERO-HALLUCINATION PROTOCOL — CRITICAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- EVERY claim, figure, specification, product name, and statistic in your output MUST originate from the SOURCE CONTENT below.
+- Do NOT introduce any new facts, entities, prices, or statistics not found in the source.
+- If a GEO method requires a data point you cannot find in the sources, SKIP that directive rather than fabricating data.
+- You are an editor improving presentation, NOT a researcher inventing new content.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GEO OPTIMIZATION DIRECTIVES (apply all that are supported by the source data):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${methodDirectives}
+- BLUF (Bottom Line Up Front): The opening paragraph must lead with the single most citable, high-value fact or claim from the source.
+- Snippet-optimized structure: Use clear H2/H3 headings, spec tables, and concise bullet lists to enable AI snippet extraction.
+- Technical terminology precision: Use exact product names, specs, part numbers, and standard acronyms as found in the source.
+- Remove hedge language: Eliminate phrases like "may", "might", "could potentially", "it is believed that" — replace with direct assertions backed by source data.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOURCE CONTENT TO OPTIMIZE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+${existingContent.slice(0, 8000)}
+"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANDATORY OUTPUT FORMAT (follow exactly):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Write the complete optimized/rewritten content.
+2. Then write exactly on its own line: == GEO_ANALYSIS ==
+3. Write a structured GEO audit with two sections:
+   **Changes Made**: Bullet list of specific structural and language changes applied.
+   **Expected GEO Signal Improvement**: Quantified estimates (e.g., "quantified claims: +3 → from 2 to 5", "hedge words removed: -4").
+4. Then write exactly on its own line: == END ==`;
+}
+
+/**
+ * Streaming GEO content optimizer for the Standalone Mode.
+ * Takes existing content and rewrites it to maximize AI citation probability,
+ * applying the selected GEO methods while maintaining strict zero-hallucination.
+ */
+export async function* optimizeContentForGeoStream(
+  existingContent: string,
+  selectedMethods: GeoMethodId[],
+  platform: string,
+  format: string,
+  userDirective: string,
+  uiLang: string
+): AsyncGenerator<string> {
+  const methodDirectives = buildMethodDirectives(selectedMethods.slice(0, 3));
+  const prompt = buildOptimizePrompt({
+    existingContent,
+    methodDirectives,
+    platform,
+    format,
+    userDirective,
+    uiLang,
+  });
+
+  const response = await genAI.models.generateContentStream({
+    model: GEMINI_MODELS.contentGen,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }]
+  });
+
+  for await (const chunk of response) {
+    if (chunk.text) yield chunk.text;
+  }
+}
