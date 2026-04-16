@@ -886,14 +886,14 @@ MANDATORY OUTPUT FORMAT (follow exactly):
  * Takes existing content and rewrites it to maximize AI citation probability,
  * applying the selected GEO methods while maintaining strict zero-hallucination.
  */
-export async function* optimizeContentForGeoStream(
+export const optimizeContentForGeoStream = async (
   existingContent: string,
   selectedMethods: GeoMethodId[],
   platform: string,
   format: string,
   userDirective: string,
   uiLang: string
-): AsyncGenerator<string> {
+) => {
   const methodDirectives = buildMethodDirectives(selectedMethods.slice(0, 3));
   const prompt = buildOptimizePrompt({
     existingContent,
@@ -909,7 +909,10 @@ export async function* optimizeContentForGeoStream(
     contents: [{ role: 'user', parts: [{ text: prompt }] }]
   });
 
-  for await (const chunk of response) {
-    if (chunk.text) yield chunk.text;
+  async function* stream() {
+    for await (const chunk of response) {
+      if (chunk.text) yield chunk.text;
+    }
   }
-}
+  return stream();
+};
