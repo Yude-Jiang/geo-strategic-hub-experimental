@@ -565,7 +565,17 @@ CRITICAL: Return ONLY the JSON. No markdown fences. Ensure ALL text is in [${uiL
 export const fetchUrlContent = async (url: string) => {
   const res = await fetch(`https://r.jina.ai/${url}`);
   const text = await res.text();
-  return { title: url, content: text, wordCount: text.split(/\s+/).length };
+
+  // Jina Reader prepends structured metadata — extract the real page title
+  // Format:  "Title: <title>\nURL Source: ...\n\n<body>"
+  const titleMatch = text.match(/^Title:\s*(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : url;
+
+  // Strip the Jina metadata header to get clean body text for word count
+  const bodyStart = text.indexOf('\n\n');
+  const body = bodyStart !== -1 ? text.slice(bodyStart).trim() : text;
+
+  return { title, content: text, body, wordCount: body.split(/\s+/).filter(Boolean).length };
 };
 
 // ─── Evidence Quality Scoring Helpers ────────────────────────────────────────

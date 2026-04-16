@@ -64,6 +64,10 @@ const parseModelOutput = (text: string) => {
   };
 };
 
+// ─── Local source type (extends PersistedRagSource with UI-only preview) ─────
+
+type LocalSource = PersistedRagSource & { preview?: string };
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type InputTab = 'text' | 'url' | 'file';
@@ -77,7 +81,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const [urlInput, setUrlInput] = useState('');
   const [isUrlLoading, setIsUrlLoading] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [sources, setSources] = useState<PersistedRagSource[]>([]);
+  const [sources, setSources] = useState<LocalSource[]>([]);
 
   // ── Controls ─────────────────────────────────────────────────────────────
   const [directive, setDirective] = useState('');
@@ -94,7 +98,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
   // ── Source helpers ────────────────────────────────────────────────────────
 
-  const addSource = (source: PersistedRagSource) => {
+  const addSource = (source: LocalSource) => {
     setSources(prev => [...prev, source]);
   };
 
@@ -110,6 +114,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
       name: `Pasted text (${text.slice(0, 40).replace(/\n/g, ' ')}${text.length > 40 ? '…' : ''})`,
       content: text,
       wordCount: text.split(/\s+/).filter(Boolean).length,
+      preview: text.replace(/\s+/g, ' ').slice(0, 120),
     });
     setPastedText('');
   };
@@ -120,7 +125,15 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
     setUrlError(null);
     try {
       const data = await fetchUrlContent(urlInput);
-      addSource({ type: 'url', name: data.title || urlInput, content: data.content, wordCount: data.wordCount });
+      // Use body (header-stripped) text for the preview so users can verify
+      const previewText = (data.body || data.content).replace(/\s+/g, ' ').slice(0, 120);
+      addSource({
+        type: 'url',
+        name: data.title || urlInput,
+        content: data.content,
+        wordCount: data.wordCount,
+        preview: previewText,
+      });
       setUrlInput('');
     } catch (err: any) {
       setUrlError(err.message || t.standalone.urlFetchError);
@@ -136,7 +149,13 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
       const reader = new FileReader();
       reader.onload = () => {
         const text = reader.result as string;
-        addSource({ type: 'file', name: file.name, content: text, wordCount: text.split(/\s+/).filter(Boolean).length });
+        addSource({
+          type: 'file',
+          name: file.name,
+          content: text,
+          wordCount: text.split(/\s+/).filter(Boolean).length,
+          preview: text.replace(/\s+/g, ' ').slice(0, 120),
+        });
       };
       reader.readAsText(file);
     });
@@ -374,20 +393,27 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">Added Sources</div>
                   {sources.map((s, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 group">
-                      <div className={`p-1.5 rounded-lg flex-shrink-0 ${s.type === 'url' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-600'}`}>
-                        {s.type === 'url' ? <Globe className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                    <div key={idx} className="flex flex-col gap-1.5 p-3 bg-slate-50 rounded-xl border border-slate-100 group">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-1.5 rounded-lg flex-shrink-0 ${s.type === 'url' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-600'}`}>
+                          {s.type === 'url' ? <Globe className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-[#03234b] truncate">{s.name}</p>
+                          <p className="text-[10px] text-slate-400 font-black uppercase">{s.wordCount} words</p>
+                        </div>
+                        <button
+                          onClick={() => removeSource(idx)}
+                          className="p-1.5 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all flex-shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-[#03234b] truncate">{s.name}</p>
-                        <p className="text-[10px] text-slate-400 font-black uppercase">{s.wordCount} words</p>
-                      </div>
-                      <button
-                        onClick={() => removeSource(idx)}
-                        className="p-1.5 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all flex-shrink-0"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      {s.preview && (
+                        <p className="text-[10px] text-slate-500 leading-relaxed pl-9 line-clamp-2">
+                          {s.preview}…
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
