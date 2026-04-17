@@ -74,6 +74,13 @@ const GeoAuditPanel: React.FC<{ before: GeoSignals; after: GeoSignals }> = ({ be
   </div>
 );
 
+// ─── Footer helper ────────────────────────────────────────────────────────────
+
+const buildFooter = () => {
+  const date = new Date().toISOString().slice(0, 10);
+  return `\n\n---\n\n*Date: ${date} © 2026 GEO Strategic Hub • Created by Yude.jiang@st.com*`;
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const ProductOutputTabs: React.FC<Props> = ({
@@ -88,17 +95,16 @@ const ProductOutputTabs: React.FC<Props> = ({
 
   const extractTitle = (text: string) => {
     if (!text) return 'Document';
-    // Try to find first H1 or H2
     const match = text.match(/^#\s+(.*)/m) || text.match(/^##\s+(.*)/m);
     if (match) return match[1].trim().replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').slice(0, 50);
-    // Fallback to first non-empty line
     const firstLine = text.split('\n').find(l => l.trim().length > 0);
     if (firstLine) return firstLine.trim().replace(/[#\\/:*?"<>|]/g, '').replace(/\s+/g, '_').slice(0, 50);
     return 'Document';
   };
 
   const handleCopy = () => {
-    const text = activeTab === 'schema' ? schema : activeTab === 'analysis' ? analysis : content;
+    let text = activeTab === 'schema' ? schema : activeTab === 'analysis' ? analysis : content;
+    if (activeTab === 'preview' && text) text += buildFooter();
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -106,13 +112,14 @@ const ProductOutputTabs: React.FC<Props> = ({
 
   const handleExport = () => {
     if (!content) return;
-    
-    let exportText = `# GEO Optimized Content\n\n${content}\n\n`;
-    
+
+    const footer = buildFooter();
+    let exportText = `# GEO Optimized Content\n\n${content}${footer}\n\n`;
+
     if (analysis) {
       exportText += `\n---\n\n# Strategic Analysis\n\n${analysis}\n`;
     }
-    
+
     if (schema) {
       exportText += `\n---\n\n# JSON-LD Schema\n\n\`\`\`json\n${schema}\n\`\`\`\n`;
     }
@@ -120,18 +127,18 @@ const ProductOutputTabs: React.FC<Props> = ({
     const blob = new Blob([exportText], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    
+
     const title = extractTitle(content);
     const date = new Date().toISOString().slice(0,10).replace(/-/g, '');
-    
+
     a.style.display = 'none';
     a.href = url;
     a.download = `GEO_${title}_${date}.md`;
     document.body.appendChild(a);
     a.click();
-    
+
     alert(`Markdown Export Initialized: GEO_${title}_${date}.md`);
-    
+
     setTimeout(() => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
@@ -215,6 +222,11 @@ const ProductOutputTabs: React.FC<Props> = ({
         {activeTab === 'preview' && (
           <article className="prose prose-slate max-w-none prose-lg prose-p:mb-8 prose-p:leading-[1.85] prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-12 prose-headings:mb-6 prose-h2:text-2xl prose-h3:text-xl prose-a:text-[#3cb4e6] prose-code:bg-slate-100 prose-pre:bg-[#03234b] prose-pre:text-white prose-pre:rounded-2xl prose-pre:shadow-lg prose-li:mb-4 prose-ul:my-6 prose-ol:my-6 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-slate-50 prose-blockquote:rounded-xl prose-hr:my-12">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t.production.emptyHint || 'Content will appear here after generation...'}</ReactMarkdown>
+            {content && (
+              <div className="not-prose mt-12 pt-5 border-t border-slate-200 text-[10px] text-slate-400 font-mono tracking-tight">
+                Date: {new Date().toISOString().slice(0, 10)} © 2026 GEO Strategic Hub • Created by Yude.jiang@st.com
+              </div>
+            )}
           </article>
         )}
 

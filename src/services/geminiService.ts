@@ -68,6 +68,13 @@ export const withRetry = async <T>(
 // ─────────────────────────────────────────────────────────────────────────────
 
 
+const EUROPE_KEYWORDS = ['europe', 'eu ', 'eu,', 'emea', '欧洲', '欧盟', 'europa', 'france', 'germany', 'deutschland', 'united kingdom', 'britain', 'netherlands', 'spain', 'italy', 'nordic', 'scandinavia', 'benelux', 'swiss', 'austria', 'belgium', 'poland', 'czech'];
+function isEuropeRegion(region?: string): boolean {
+  if (!region) return false;
+  const lower = region.toLowerCase();
+  return EUROPE_KEYWORDS.some(kw => lower.includes(kw));
+}
+
 const getSystemInstruction = (lang: string, customRegion?: string, targetEcosystem?: string) => {
   const now = new Date();
   const currentDateTime = now.toLocaleString();
@@ -87,12 +94,26 @@ Method: Deep Chain of Thought (CoT).
     if (targetEcosystem === "cn") models = "Chinese models (Doubao/豆包, Kimi, DeepSeek, Qwen/通义千问, ERNIE/文心一言, Yuanbao/腾讯元宝)";
     else if (targetEcosystem === "jp") models = "Japanese ecosystem (Yahoo/Line AI, local tailored models, plus global ones)";
     else if (targetEcosystem === "kr") models = "Korean ecosystem (Naver CUE:, local tailored models)";
+    else if (targetEcosystem === "global" && isEuropeRegion(customRegion)) {
+      models = "Global models (ChatGPT, Claude, Gemini, Perplexity) + Mistral AI (strong European presence and GDPR-aware training)";
+    }
 
     ecosystemContext = `
-**AI ECOSYSTEM FOCUS**: The user has selected the "${targetEcosystem}" ecosystem. 
+**AI ECOSYSTEM FOCUS**: The user has selected the "${targetEcosystem}" ecosystem.
 You MUST analyze the cognitive gaps, AI perception, and competitor threats specifically from the perspective of the dominant AI models in this ecosystem: ${models}.
 Tailor all your generated content, snippets, and strategies to rank high and be easily absorbed by these specific models.
 `;
+
+    if (targetEcosystem === "global" && isEuropeRegion(customRegion)) {
+      ecosystemContext += `
+**MISTRAL AI COGNITIVE CONSIDERATION**: Mistral AI is a leading European open-source LLM with strong enterprise adoption across France, Germany, Benelux, and broader EU markets. Mistral exhibits distinct cognitive patterns:
+- Strong preference for GDPR-compliant, privacy-first framing
+- Higher weighting of CE/EN certifications, EU directives (RoHS, REACH, RED), and European standards bodies (ETSI, CEN)
+- European industrial buyer language (procurement-centric, compliance-first, TCO-focused)
+- Sensitivity to EU sovereignty and data residency concerns
+When generating content or strategies, ensure key technical claims and structured data are also optimized for Mistral's training corpus patterns.
+`;
+    }
   }
 
   let regionContext = "";
@@ -378,10 +399,13 @@ export const generateContentStream = async (
   sourceContext: string,
   uiLang: string,
   focusedMode: boolean = false,
-  selectedMethods: import('./geoMethods').GeoMethodId[] = []
+  selectedMethods: import('./geoMethods').GeoMethodId[] = [],
+  ecosystem?: string,
+  customRegion?: string
 ) => {
   const prompt = buildContentPrompt({
     platform, format, bundles, orphanAnchors, customPrompt, sourceContext, uiLang, focusedMode, selectedMethods,
+    ecosystem, customRegion,
   });
 
   const response = await genAI.models.generateContentStream({
@@ -837,6 +861,8 @@ function buildOptimizePrompt({
   format,
   userDirective,
   uiLang,
+  ecosystem,
+  customRegion,
 }: {
   existingContent: string;
   methodDirectives: string;
@@ -844,9 +870,15 @@ function buildOptimizePrompt({
   format: string;
   userDirective: string;
   uiLang: string;
+  ecosystem?: string;
+  customRegion?: string;
 }): string {
   const directive = userDirective.trim()
     ? `\nUSER DIRECTIVE: ${userDirective.trim()}`
+    : '';
+
+  const mistralClause = ecosystem === 'global' && isEuropeRegion(customRegion)
+    ? `\nEUROPEAN MARKET + MISTRAL AI CONSIDERATION: Target region includes Europe. Structure the optimized content to also align with Mistral AI's cognitive patterns — reference EU standards, CE/EN certifications, GDPR compliance, and European regulatory frameworks where these topics are supported by the source content. European enterprise buyers frequently use Mistral AI.`
     : '';
 
   return `ROLE: Elite GEO (Generative Engine Optimization) Content Optimizer / Editor.
@@ -854,7 +886,7 @@ TASK: Rewrite and strengthen the provided content to maximize its probability of
 
 TARGET PLATFORM: [${platform}]
 FORMAT TYPE: [${format}] — Strictly adhere to the structure and length norms of this format.
-OUTPUT LANGUAGE: [${uiLang}] — The ENTIRE output MUST be in this language. Do not mix languages.${directive}
+OUTPUT LANGUAGE: [${uiLang}] — The ENTIRE output MUST be in this language. Do not mix languages.${directive}${mistralClause}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️  ZERO-HALLUCINATION PROTOCOL — CRITICAL
@@ -902,7 +934,9 @@ export const optimizeContentForGeoStream = async (
   platform: string,
   format: string,
   userDirective: string,
-  uiLang: string
+  uiLang: string,
+  ecosystem?: string,
+  customRegion?: string
 ) => {
   const methodDirectives = buildMethodDirectives(selectedMethods.slice(0, 3));
   const prompt = buildOptimizePrompt({
@@ -912,6 +946,8 @@ export const optimizeContentForGeoStream = async (
     format,
     userDirective,
     uiLang,
+    ecosystem,
+    customRegion,
   });
 
   const response = await genAI.models.generateContentStream({

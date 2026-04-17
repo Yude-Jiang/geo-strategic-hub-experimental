@@ -57,6 +57,10 @@ export interface WorkflowState {
   // Standalone Mode
   standaloneMode: boolean;
   setStandaloneMode: (mode: boolean) => void;
+
+  // Region override (from diagnosis — shared across all modes)
+  customRegion: string;
+  setCustomRegion: (region: string) => void;
 }
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -114,6 +118,9 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       standaloneMode: false,
       setStandaloneMode: (mode) => set({ standaloneMode: mode }),
+
+      customRegion: '',
+      setCustomRegion: (region) => set({ customRegion: region }),
     }),
     {
       name: 'geo-hub-storage', // saves to localStorage
