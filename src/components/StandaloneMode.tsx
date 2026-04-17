@@ -7,16 +7,18 @@ import {
   translateContent,
   fetchUrlContent,
   withRetry,
+  generateWorkflowReportStream,
 } from '../services/geminiService';
 import type { TranslationKeys } from '../i18n/translations';
 import type { PersistedRagSource } from '../types';
 import {
   FileText, Globe, Upload, X, Loader2, Zap,
-  Link as LinkIcon, AlignLeft, Target, ShieldCheck, ChevronDown,
+  Link as LinkIcon, AlignLeft, Target, ShieldCheck, ChevronDown, FileBarChart,
 } from 'lucide-react';
 
 import PlatformSelector from './PlatformSelector';
 import ProductOutputTabs from './ProductOutputTabs';
+import ReportModal from './ReportModal';
 import { computeGeoSignals } from '../services/structuralParser';
 import type { GeoSignals } from '../services/structuralParser';
 import { GEO_METHODS, RECOMMENDED_COMBOS } from '../services/geoMethods';
@@ -99,6 +101,9 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const [output, setOutput] = useState<BundleOutput>(emptyOutput());
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportContent, setReportContent] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // ── Source helpers ────────────────────────────────────────────────────────
 
@@ -262,6 +267,38 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
       console.error(err);
     } finally {
       setIsTranslating(false);
+    }
+  };
+
+  // ── Report generation ────────────────────────────────────────────────────
+  const handleGenerateReport = async () => {
+    if (!output.content) return;
+    setReportContent('');
+    setIsGeneratingReport(true);
+    setShowReport(true);
+    const sourceSummary = sources.map(s => `- ${s.name} (${s.wordCount} words)`).join('\n');
+    const selectedMethodLabels = selectedMethods
+      .slice(0, 3)
+      .map(id => GEO_METHODS.find(m => m.id === id)?.label || id);
+    try {
+      const stream = await generateWorkflowReportStream({
+        generatedContent: output.content,
+        geoAnalysis: output.analysis,
+        geoSignalsBefore: output.geoSignalsBefore,
+        geoSignalsAfter: output.geoSignalsAfter,
+        ecosystem: targetEcosystem,
+        customRegion,
+        uiLang,
+        sourceSummary,
+        selectedMethodLabels,
+      });
+      for await (const chunk of stream) {
+        setReportContent(prev => prev + chunk);
+      }
+    } catch (err) {
+      console.error('Report generation failed:', err);
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -556,6 +593,20 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
         {/* ── Right panel: output ── */}
         <div className="lg:col-span-8">
+          {output.content && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#ffd200] to-[#f5c400] text-[#03234b] text-[10px] font-black uppercase tracking-widest rounded-xl hover:shadow-md transition-all disabled:opacity-50"
+              >
+                {isGeneratingReport
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t.production.reportGenerating}</>
+                  : <><FileBarChart className="w-3.5 h-3.5" /> {t.standalone.reportBtn}</>
+                }
+              </button>
+            </div>
+          )}
           {output.generateError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
               <span className="text-red-500 text-lg">⚠️</span>
@@ -592,6 +643,14 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
         </div>
       </div>
     </div>
+
+    <ReportModal
+      isOpen={showReport}
+      onClose={() => setShowReport(false)}
+      content={reportContent}
+      isGenerating={isGeneratingReport}
+      t={t}
+    />
   );
 };
 

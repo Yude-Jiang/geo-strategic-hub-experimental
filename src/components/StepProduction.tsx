@@ -6,19 +6,21 @@ import {
   humanizeContent,
   translateContent,
   deepEvidenceGrounding,
-  withRetry
+  withRetry,
+  generateWorkflowReportStream,
 } from '../services/geminiService';
 import type { TranslationKeys } from '../i18n/translations';
 import type { PlaybookAnchorBundle } from '../types';
 import {
   ArrowLeft, Loader2, Zap,
   ShieldCheck, Sword, Lightbulb, Target,
-  Search as SearchIcon, CheckCircle2, Circle, ChevronDown
+  Search as SearchIcon, CheckCircle2, Circle, ChevronDown, FileText,
 } from 'lucide-react';
 
 import RagSourcePanel from './RagSourcePanel';
 import PlatformSelector from './PlatformSelector';
 import ProductOutputTabs from './ProductOutputTabs';
+import ReportModal from './ReportModal';
 import { buildAnnotatedContext, getParseStats, computeGeoSignals } from '../services/structuralParser';
 import type { GeoSignals } from '../services/structuralParser';
 import { GEO_METHODS, RECOMMENDED_COMBOS } from '../services/geoMethods';
@@ -66,6 +68,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const customRegion = useWorkflowStore(state => state.customRegion);
   const selectedPlaybooks = useWorkflowStore(state => state.selectedPlaybooks);
   const selectedMonitoringQuestions = useWorkflowStore(state => state.selectedMonitoringQuestions);
+  const diagnosisResult = useWorkflowStore(state => state.diagnosisResult);
   const setStep = useWorkflowStore(state => state.setStep);
   const persistedSources = useWorkflowStore(state => state.persistedSources);
   const setPersistedSources = useWorkflowStore(state => state.setPersistedSources);
@@ -106,6 +109,9 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const [systemSources, setSystemSources] = useState<any[]>([]);
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportContent, setReportContent] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [selectedMethods, setSelectedMethods] = useState<GeoMethodId[]>(
     RECOMMENDED_COMBOS.semiconductor_technical.ids
   );
@@ -297,6 +303,36 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
       console.error(err);
     } finally {
       setIsTranslating(false);
+    }
+  };
+
+  // ── Report generation ─────────────────────────────────────────────────────
+  const handleGenerateReport = async () => {
+    const ao = bundleOutputs[activeBundleIdx];
+    if (!ao?.content) return;
+    setReportContent('');
+    setIsGeneratingReport(true);
+    setShowReport(true);
+    try {
+      const stream = await generateWorkflowReportStream({
+        diagnosisResult: diagnosisResult || undefined,
+        selectedPlaybooks: selectedPlaybooks.length > 0 ? selectedPlaybooks : undefined,
+        selectedMonitoringQuestions: selectedMonitoringQuestions.length > 0 ? selectedMonitoringQuestions : undefined,
+        generatedContent: ao.content,
+        geoAnalysis: ao.analysis,
+        geoSignalsBefore: ao.geoSignalsBefore,
+        geoSignalsAfter: ao.geoSignalsAfter,
+        ecosystem: targetEcosystem,
+        customRegion,
+        uiLang,
+      });
+      for await (const chunk of stream) {
+        setReportContent(prev => prev + chunk);
+      }
+    } catch (err) {
+      console.error('Report generation failed:', err);
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -578,6 +614,20 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
         {/* ── Right panel: output for active bundle ── */}
         <div className="lg:col-span-8">
+          {activeOutput.content && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#ffd200] to-[#f5c400] text-[#03234b] text-[10px] font-black uppercase tracking-widest rounded-xl hover:shadow-md transition-all disabled:opacity-50"
+              >
+                {isGeneratingReport
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t.production.reportGenerating}</>
+                  : <><FileText className="w-3.5 h-3.5" /> {t.production.reportBtn}</>
+                }
+              </button>
+            </div>
+          )}
           {activeOutput.generateError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
               <span className="text-red-500 text-lg">⚠️</span>
@@ -614,6 +664,14 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
         </div>
       </div>
     </div>
+
+    <ReportModal
+      isOpen={showReport}
+      onClose={() => setShowReport(false)}
+      content={reportContent}
+      isGenerating={isGeneratingReport}
+      t={t}
+    />
   );
 };
 
