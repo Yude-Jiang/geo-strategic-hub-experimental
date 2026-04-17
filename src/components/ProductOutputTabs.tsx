@@ -21,58 +21,61 @@ interface Props {
 
 // ─── GEO Audit Panel ─────────────────────────────────────────────────────────
 
-const SIGNAL_LABELS: { key: keyof GeoSignals; label: string; higherIsBetter: boolean; unit?: string }[] = [
-  { key: 'quantifiedClaims', label: '量化数据',     higherIsBetter: true  },
-  { key: 'techTerms',        label: '技术术语',     higherIsBetter: true  },
-  { key: 'citableChunks',    label: '可引用块',     higherIsBetter: true  },
-  { key: 'hedgeWords',       label: '模糊语气词',   higherIsBetter: false },
-];
+const GeoAuditPanel: React.FC<{ before: GeoSignals; after: GeoSignals; t: any }> = ({ before, after, t }) => {
+  const p = t.production;
+  const signals: { key: keyof GeoSignals; label: string; higherIsBetter: boolean }[] = [
+    { key: 'quantifiedClaims', label: p.signalQuantClaims, higherIsBetter: true  },
+    { key: 'techTerms',        label: p.signalTechTerms,   higherIsBetter: true  },
+    { key: 'citableChunks',    label: p.signalCitable,     higherIsBetter: true  },
+    { key: 'hedgeWords',       label: p.signalHedgeWords,  higherIsBetter: false },
+  ];
 
-const GeoAuditPanel: React.FC<{ before: GeoSignals; after: GeoSignals }> = ({ before, after }) => (
-  <div className="rounded-2xl border border-slate-100 overflow-hidden mb-6">
-    <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center gap-2">
-      <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">GEO 信号审计</span>
-      {after.blufCompliance && (
-        <span className="ml-auto text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-          ✓ 倒金字塔合规
-        </span>
-      )}
-    </div>
-    <div className="divide-y divide-slate-50">
-      {SIGNAL_LABELS.map(({ key, label, higherIsBetter }) => {
-        const b = before[key] as number;
-        const a = after[key] as number;
-        const improved = higherIsBetter ? a > b : a < b;
-        const regressed = higherIsBetter ? a < b : a > b;
-        const delta = a - b;
-        const sign = delta > 0 ? '+' : '';
-        return (
-          <div key={key} className="grid grid-cols-[1fr_auto_auto_auto] items-center px-4 py-2.5 gap-3">
-            <span className="text-xs font-bold text-slate-600">{label}</span>
-            <span className="text-[11px] text-slate-400 tabular-nums w-8 text-right">{b}</span>
-            <span className="text-[11px] font-black tabular-nums w-8 text-right text-[#03234b]">{a}</span>
-            <div className="flex items-center gap-1 w-16 justify-end">
-              {improved ? (
-                <><TrendingUp className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-black text-emerald-600">{sign}{delta}</span></>
-              ) : regressed ? (
-                <><TrendingDown className="w-3 h-3 text-red-400" /><span className="text-[10px] font-black text-red-500">{sign}{delta}</span></>
-              ) : (
-                <><Minus className="w-3 h-3 text-slate-300" /><span className="text-[10px] font-black text-slate-400">—</span></>
-              )}
+  return (
+    <div className="rounded-2xl border border-slate-100 overflow-hidden mb-6">
+      <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+        <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{p.geoAuditTitle}</span>
+        {after.blufCompliance && (
+          <span className="ml-auto text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+            {p.blufCompliance}
+          </span>
+        )}
+      </div>
+      <div className="divide-y divide-slate-50">
+        {signals.map(({ key, label, higherIsBetter }) => {
+          const b = before[key] as number;
+          const a = after[key] as number;
+          const improved = higherIsBetter ? a > b : a < b;
+          const regressed = higherIsBetter ? a < b : a > b;
+          const delta = a - b;
+          const sign = delta > 0 ? '+' : '';
+          return (
+            <div key={key} className="grid grid-cols-[1fr_auto_auto_auto] items-center px-4 py-2.5 gap-3">
+              <span className="text-xs font-bold text-slate-600">{label}</span>
+              <span className="text-[11px] text-slate-400 tabular-nums w-8 text-right">{b}</span>
+              <span className="text-[11px] font-black tabular-nums w-8 text-right text-[#03234b]">{a}</span>
+              <div className="flex items-center gap-1 w-16 justify-end">
+                {improved ? (
+                  <><TrendingUp className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-black text-emerald-600">{sign}{delta}</span></>
+                ) : regressed ? (
+                  <><TrendingDown className="w-3 h-3 text-red-400" /><span className="text-[10px] font-black text-red-500">{sign}{delta}</span></>
+                ) : (
+                  <><Minus className="w-3 h-3 text-slate-300" /><span className="text-[10px] font-black text-slate-400">—</span></>
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+      <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 grid grid-cols-[1fr_auto_auto_auto] gap-3">
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{p.wordCount}</span>
+        <span className="text-[9px] text-slate-400 tabular-nums w-8 text-right">{before.wordCount}</span>
+        <span className="text-[9px] font-black text-[#03234b] tabular-nums w-8 text-right">{after.wordCount}</span>
+        <div className="w-16" />
+      </div>
     </div>
-    <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 grid grid-cols-[1fr_auto_auto_auto] gap-3">
-      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">字数</span>
-      <span className="text-[9px] text-slate-400 tabular-nums w-8 text-right">{before.wordCount}</span>
-      <span className="text-[9px] font-black text-[#03234b] tabular-nums w-8 text-right">{after.wordCount}</span>
-      <div className="w-16" />
-    </div>
-  </div>
-);
+  );
+};
 
 // ─── Footer helper ────────────────────────────────────────────────────────────
 
@@ -92,6 +95,7 @@ const ProductOutputTabs: React.FC<Props> = ({
 }) => {
   const [activeTab, setActiveTab] = React.useState<'preview' | 'analysis' | 'schema'>('preview');
   const [copied, setCopied] = React.useState(false);
+  const p = t.production;
 
   const extractTitle = (text: string) => {
     if (!text) return 'Document';
@@ -137,7 +141,7 @@ const ProductOutputTabs: React.FC<Props> = ({
     document.body.appendChild(a);
     a.click();
 
-    alert(`Markdown Export Initialized: GEO_${title}_${date}.md`);
+    alert(`${p.exportAlert}GEO_${title}_${date}.md`);
 
     setTimeout(() => {
       document.body.removeChild(a);
@@ -154,19 +158,19 @@ const ProductOutputTabs: React.FC<Props> = ({
             onClick={() => setActiveTab('preview')}
             className={`flex items-center gap-2 px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'preview' ? 'bg-white text-[#03234b] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            <Eye className="w-4 h-4" /> Preview
+            <Eye className="w-4 h-4" /> {p.tabPreview}
           </button>
           <button
             onClick={() => setActiveTab('analysis')}
             className={`flex items-center gap-2 px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'analysis' ? 'bg-white text-[#03234b] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            <BarChart3 className="w-4 h-4" /> Analysis
+            <BarChart3 className="w-4 h-4" /> {p.tabAnalysis}
           </button>
           <button
             onClick={() => setActiveTab('schema')}
             className={`flex items-center gap-2 px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'schema' ? 'bg-white text-[#03234b] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            <FileCode className="w-4 h-4" /> JSON-LD
+            <FileCode className="w-4 h-4" /> {p.tabSchema}
           </button>
         </div>
 
@@ -179,23 +183,23 @@ const ProductOutputTabs: React.FC<Props> = ({
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#03234b] to-[#0a3d7a] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all disabled:opacity-30 disabled:hover:scale-100"
               >
                 {isHumanizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[#ffd200]" />}
-                {t.production.humanizeBtn}
+                {p.humanizeBtn}
               </button>
-              
+
               <div className={`relative flex items-center gap-2 px-4 py-2 bg-slate-100 text-[#03234b] rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${(isTranslating || !content) ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-200 cursor-pointer'}`}>
-                <Languages className="w-3.5 h-3.5" /> 
-                {isTranslating ? t.production.translating : t.production.translateBtn}
-                <select 
+                <Languages className="w-3.5 h-3.5" />
+                {isTranslating ? p.translating : p.translateBtn}
+                <select
                   disabled={isTranslating || !content}
                   onChange={(e) => {
                     if(e.target.value) {
                       onTranslate(e.target.value);
-                      e.target.value = ''; // Reset select state
+                      e.target.value = '';
                     }
                   }}
                   className="absolute inset-0 opacity-0 w-full h-full cursor-pointer disabled:cursor-not-allowed"
                 >
-                  <option value="">Select Target...</option>
+                  <option value="">{p.translationSelectPlaceholder}</option>
                   <option value="zh">中文 (Chinese)</option>
                   <option value="en">English (English)</option>
                   <option value="jp">日本語 (Japanese)</option>
@@ -210,7 +214,7 @@ const ProductOutputTabs: React.FC<Props> = ({
           <button
             onClick={handleCopy}
             className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-[#3cb4e6]/10 hover:text-[#3cb4e6] transition-all relative"
-            title="Copy"
+            title={p.copy}
           >
             {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           </button>
@@ -221,7 +225,7 @@ const ProductOutputTabs: React.FC<Props> = ({
       <div className="flex-1 overflow-y-auto p-10 bg-slate-50/30 custom-scrollbar">
         {activeTab === 'preview' && (
           <article className="prose prose-slate max-w-none prose-lg prose-p:mb-8 prose-p:leading-[1.85] prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-12 prose-headings:mb-6 prose-h2:text-2xl prose-h3:text-xl prose-a:text-[#3cb4e6] prose-code:bg-slate-100 prose-pre:bg-[#03234b] prose-pre:text-white prose-pre:rounded-2xl prose-pre:shadow-lg prose-li:mb-4 prose-ul:my-6 prose-ol:my-6 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-slate-50 prose-blockquote:rounded-xl prose-hr:my-12">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t.production.emptyHint || 'Content will appear here after generation...'}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || p.emptyHint || 'Content will appear here after generation...'}</ReactMarkdown>
             {content && (
               <div className="not-prose mt-12 pt-5 border-t border-slate-200 text-[10px] text-slate-400 font-mono tracking-tight">
                 Date: {new Date().toISOString().slice(0, 10)} © 2026 GEO Strategic Hub • Created by Yude.jiang@st.com
@@ -233,10 +237,10 @@ const ProductOutputTabs: React.FC<Props> = ({
         {activeTab === 'analysis' && (
           <div className="space-y-6">
             {geoSignalsBefore && geoSignalsAfter && (
-              <GeoAuditPanel before={geoSignalsBefore} after={geoSignalsAfter} />
+              <GeoAuditPanel before={geoSignalsBefore} after={geoSignalsAfter} t={t} />
             )}
             <article className="prose prose-slate max-w-none prose-lg prose-p:mb-8 prose-p:leading-[1.85] prose-headings:font-black prose-headings:text-[#03234b] prose-headings:uppercase prose-headings:tracking-tight prose-headings:mt-10 prose-headings:mb-6 prose-h2:text-2xl prose-h3:text-xl prose-li:mb-4 prose-ul:my-6 prose-ol:my-6 prose-strong:text-[#03234b] prose-blockquote:border-[#3cb4e6] prose-blockquote:bg-blue-50 prose-blockquote:rounded-xl prose-hr:my-12">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis || t.production.emptyHint || 'Strategic analysis not found in model output.'}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis || p.emptyHint || 'Strategic analysis not found in model output.'}</ReactMarkdown>
             </article>
           </div>
         )}
@@ -246,14 +250,14 @@ const ProductOutputTabs: React.FC<Props> = ({
             {schemaStatus === 'loading' && (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
                 <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Generating JSON-LD Schema...</p>
+                <p className="text-[10px] font-black uppercase tracking-widest">{p.schemaGenerating}</p>
               </div>
             )}
-            
+
             {schemaStatus === 'error' && (
               <div className="flex-1 flex flex-col items-center justify-center text-red-500">
                 <AlertCircle className="w-8 h-8 mb-2" />
-                <p className="text-[10px] font-black uppercase tracking-widest">{schemaError || 'Schema Generation Failed'}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest">{schemaError || p.schemaFailed}</p>
               </div>
             )}
 
@@ -266,7 +270,7 @@ const ProductOutputTabs: React.FC<Props> = ({
             {schemaStatus === 'idle' && (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
                 <FileCode className="w-12 h-12 mb-2 opacity-20" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Schema appears after generation</p>
+                <p className="text-[10px] font-black uppercase tracking-widest">{p.schemaIdle}</p>
               </div>
             )}
           </div>
@@ -277,14 +281,14 @@ const ProductOutputTabs: React.FC<Props> = ({
       <div className="bg-white px-6 py-3 border-t border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{(t.production as any).footerNote || 'Verified Grounding Content • RAG Hybrid Strategy'}</span>
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{p.footerNote || 'Verified Grounding Content • RAG Hybrid Strategy'}</span>
         </div>
-        <button 
+        <button
           onClick={handleExport}
           disabled={!content}
           className="flex items-center gap-1 text-[9px] font-black text-[#3cb4e6] uppercase tracking-widest hover:underline disabled:opacity-30 disabled:no-underline"
         >
-          <Download className="w-3 h-3" /> {t.production.export}
+          <Download className="w-3 h-3" /> {p.export}
         </button>
       </div>
     </div>

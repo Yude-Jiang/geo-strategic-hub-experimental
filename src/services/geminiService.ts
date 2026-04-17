@@ -436,9 +436,13 @@ export const chatWithAssistant = async (message: string, history: any[], context
 };
 
 export const generateJsonLdSchema = async (content: string, uiLang: string, platform: string) => {
+  const langNames: Record<string, string> = { zh: 'Chinese (Mandarin)', en: 'English', jp: 'Japanese', kr: 'Korean' };
+  const langName = langNames[uiLang] || uiLang;
   const res = await genAI.models.generateContent({
     model: GEMINI_MODELS.contentGen,
-    contents: [{ role: 'user', parts: [{ text: `You are a Schema.org expert. Based on the following content, generate a VALID JSON-LD structured data block (application/ld+json). The schema should include @context, @type (Article, TechArticle, or HowTo as appropriate), headline, description, author, datePublished, and any relevant properties. Platform: ${platform}. Language: ${uiLang}.
+    contents: [{ role: 'user', parts: [{ text: `You are a Schema.org expert. Based on the following content, generate a VALID JSON-LD structured data block (application/ld+json). The schema should include @context, @type (Article, TechArticle, or HowTo as appropriate), headline, description, author, datePublished, and any relevant properties. Platform: ${platform}.
+
+OUTPUT LANGUAGE: [${langName}] — All text value fields (headline, description, keywords, name, etc.) MUST be written in ${langName}. Do NOT output English text in value fields unless the language is English.
 
 Content to schema-ify:
 ${content.slice(0, 4000)}
@@ -455,6 +459,7 @@ RESPOND WITH ONLY THE JSON OBJECT. Do NOT wrap in markdown code fences. Do NOT a
 
 export const humanizeContent = async (content: string, uiLang: string = 'en') => {
   const isZh = uiLang === 'zh' || uiLang.startsWith('zh');
+  const isJp = uiLang === 'jp' || uiLang.startsWith('ja');
   
   const zhHumanizerPrompt = `你是一位顶尖的中文深度资深编辑，专门识别并剔除文本中的“AI 味”。
 你的目标是让以下文本听起来更自然、更像真实的人类专家书写，同时保留所有核心技术点和数据。
@@ -477,7 +482,29 @@ export const humanizeContent = async (content: string, uiLang: string = 'en') =>
 ${content.slice(0, 6000)}
 """`;
 
-  const genericHumanizerPrompt = `You are an expert technical editor specialized in "humanizing" AI-generated text based on the WikiProject AI Cleanup standards. 
+  const jpHumanizerPrompt = `あなたはAI生成テキストの「人間らしさ」を復元する日本語の熟練編集者です。
+以下のコンテンツから「AI臭」を取り除き、専門家が書いたような自然な日本語にリライトしてください。
+すべての技術的事実とデータは必ず保持してください。
+
+### 🚨 削除すべきAIパターン：
+1. **大げさな意義づけ**：「歴史的な転換点」「重要な意義を持つ」「体現している」などの空虚な表現を削除
+2. **機械的な接続詞**：「さらに」「加えて」「したがって」「重要なことに」の多用を削減
+3. **紋切り型の結びフレーズ**：「〜を確保する」「〜を示している」「〜の基盤を築く」などを削除
+4. **宣伝臭のある形容詞**：「革新的な」「画期的な」「驚くべき」などの誇大表現を削除
+5. **単調なリズム**：長短文を混ぜ、AI特有の3点列挙パターンを崩す
+6. **説明過多**：読者を信頼し、「これは〜を意味する」のような説明を削除
+
+### ✅ 編集要件：
+- **文体**：専門的かつ鋭さのある、個性ある文章
+- **構造**：AI的な三段論法を崩し、より自然な段落構成に
+- **言語**：流暢で地道な日本語。不要な英語混入を避ける
+
+処理対象テキスト：
+"""
+${content.slice(0, 6000)}
+"""`;
+
+  const genericHumanizerPrompt = `You are an expert technical editor specialized in "humanizing" AI-generated text based on the WikiProject AI Cleanup standards.
 Your goal is to strip away the robotic, overly-structured, and hyperbolic patterns of LLM output.
 
 ### 🚨 ELIMINATE THESE AI PATTERNS:
@@ -489,7 +516,7 @@ Your goal is to strip away the robotic, overly-structured, and hyperbolic patter
 6. **Hedge Phrases**: Remove "It is important to note," or "It appears that." Just state the facts.
 
 ### ✅ EXECUTION:
-- **Tone**: Professional, direct, and authoritative. 
+- **Tone**: Professional, direct, and authoritative.
 - **Voice**: Injects a sense of individual agency. Use "I/We found" instead of "It was observed" where appropriate.
 - **Rhythm**: Mix punchy short sentences with occasional complex ones.
 
@@ -498,7 +525,7 @@ Content to humanize:
 ${content.slice(0, 6000)}
 """`;
 
-  const finalPrompt = isZh ? zhHumanizerPrompt : genericHumanizerPrompt;
+  const finalPrompt = isZh ? zhHumanizerPrompt : isJp ? jpHumanizerPrompt : genericHumanizerPrompt;
 
   const res = await genAI.models.generateContent({
     model: GEMINI_MODELS.contentGen,
@@ -509,11 +536,18 @@ ${content.slice(0, 6000)}
 
 export const translateContent = async (content: string, targetLang: string) => {
   const langNames: Record<string, string> = { zh: 'Chinese (Mandarin)', en: 'English', jp: 'Japanese', kr: 'Korean' };
+  const langName = langNames[targetLang] || targetLang;
   const res = await genAI.models.generateContent({
     model: GEMINI_MODELS.contentGen,
-    contents: [{ role: 'user', parts: [{ text: `You are a professional translator. Translate the following content into ${langNames[targetLang] || targetLang}. Maintain all formatting, markdown structure, technical terminology accuracy, and data integrity. Ensure the translation sounds fluent and native, NOT robotic. DO NOT add any extra commentary or explanation.
+    contents: [{ role: 'user', parts: [{ text: `You are a professional translator. Your ENTIRE response MUST be written exclusively in ${langName}. Do NOT include any text in any other language. Do NOT add a preamble like "Here is the translation:" or any translator's notes. Begin the output directly with the translated content.
 
-Content:
+Translate the following Markdown content into ${langName}:
+- Preserve all Markdown formatting exactly (headers, bold, bullets, tables, code blocks)
+- Keep all technical acronyms, product names, and part numbers unchanged
+- Ensure the translation sounds fluent and native, NOT robotic
+- Preserve ALL data values (numbers, percentages, specifications) exactly as-is
+
+Content to translate:
 ${content.slice(0, 6000)}` }] }]
   });
   return res.text;

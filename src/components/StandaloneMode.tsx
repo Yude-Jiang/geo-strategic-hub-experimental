@@ -296,7 +296,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
           </div>
           <div className="ml-auto hidden lg:flex items-center gap-2">
             <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border border-emerald-100">
-              <ShieldCheck className="w-4 h-4" /> Zero Hallucination
+              <ShieldCheck className="w-4 h-4" /> {t.standalone.zeroHallucination}
             </div>
           </div>
         </div>
@@ -387,7 +387,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
                 <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl py-8 hover:bg-slate-50 hover:border-[#3cb4e6]/30 cursor-pointer transition-all group">
                   <Upload className="w-6 h-6 text-slate-300 group-hover:text-[#3cb4e6] mb-2 transition-colors" />
                   <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-[#03234b]">
-                    Upload .txt / .md / .pdf
+                    {t.standalone.uploadHint}
                   </span>
                   <input type="file" className="hidden" multiple accept=".txt,.md,.pdf" onChange={handleFileUpload} />
                 </label>
@@ -396,7 +396,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
               {/* Source List */}
               {sources.length > 0 && (
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">Added Sources</div>
+                  <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{t.standalone.addedSources}</div>
                   {sources.map((s, idx) => (
                     <div key={idx} className="flex flex-col gap-1.5 p-3 bg-slate-50 rounded-xl border border-slate-100 group">
                       <div className="flex items-center gap-3">
@@ -455,7 +455,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
                 className="w-full flex items-center justify-between group"
               >
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer">
-                  <Zap className="w-3 h-3 text-[#ffd200]" /> GEO Methods
+                  <Zap className="w-3 h-3 text-[#ffd200]" /> {t.standalone.geoMethodsLabel}
                   <span className="text-slate-300 font-medium normal-case tracking-normal">(max 3)</span>
                 </label>
                 <div className="flex items-center gap-2">
@@ -560,7 +560,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
             <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
               <span className="text-red-500 text-lg">⚠️</span>
               <div>
-                <p className="text-red-800 font-black text-xs uppercase tracking-widest">Optimization Failed</p>
+                <p className="text-red-800 font-black text-xs uppercase tracking-widest">{t.production.optimizationFailed}</p>
                 <p className="text-red-700 text-sm mt-1 font-mono">{output.generateError}</p>
               </div>
             </div>
@@ -570,7 +570,7 @@ const StandaloneMode: React.FC<{ t: TranslationKeys }> = ({ t }) => {
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3">
               <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
               <p className="text-xs font-bold text-amber-800 leading-relaxed">
-                输出已达到安全长度上限（18,000 字符）并自动截断。如需优化更长内容，请分段提交。
+                {t.production.streamTruncatedMsg}
               </p>
             </div>
           )}

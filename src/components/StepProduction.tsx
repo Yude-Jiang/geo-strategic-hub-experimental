@@ -450,7 +450,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
                 className="w-full flex items-center justify-between group"
               >
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer">
-                  <Zap className="w-3 h-3 text-[#ffd200]" /> GEO Methods
+                  <Zap className="w-3 h-3 text-[#ffd200]" /> {t.production.geoMethodsLabel}
                   <span className="text-slate-300 font-medium normal-case tracking-normal">(max 3)</span>
                 </label>
                 <div className="flex items-center gap-2">
@@ -582,7 +582,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
             <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
               <span className="text-red-500 text-lg">⚠️</span>
               <div>
-                <p className="text-red-800 font-black text-xs uppercase tracking-widest">Generation Failed</p>
+                <p className="text-red-800 font-black text-xs uppercase tracking-widest">{t.production.generationFailed}</p>
                 <p className="text-red-700 text-sm mt-1 font-mono">{activeOutput.generateError}</p>
               </div>
             </div>
@@ -592,7 +592,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3">
               <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
               <p className="text-xs font-bold text-amber-800 leading-relaxed">
-                输出已达到安全长度上限（18,000 字符）并自动截断。如需更长内容，请缩减剧本数量或使用更简洁的格式类型。
+                {t.production.streamTruncatedMsg}
               </p>
             </div>
           )}
