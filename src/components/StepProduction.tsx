@@ -344,6 +344,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
+    <>
     <div className="space-y-6 animate-fade-in pb-20">
 
       {/* ── Header ── */}
@@ -664,7 +665,6 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
         </div>
       </div>
     </div>
-
     <ReportModal
       isOpen={showReport}
       onClose={() => setShowReport(false)}
@@ -672,6 +672,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
       isGenerating={isGeneratingReport}
       t={t}
     />
+    </>
   );
 };
 
