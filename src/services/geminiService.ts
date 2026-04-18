@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { AnalysisResult, MonitoringQuestion, MarketStrategy, PlaybookAnchorBundle, ModelVerificationResult, ModelClaimVerification, ScoredEvidenceSource, EvidenceAuthority, EvidenceRecency, AnchorVerificationResult } from "../types";
 import { buildContentPrompt } from "./promptBuilder";
+import { buildMethodDirectives } from "./geoMethods";
+import type { GeoMethodId } from "./geoMethods";
 import { GEMINI_MODELS } from "../config/models";
 
 // Initialize with Runtime env (from server.js) or Vite env (built-in)
@@ -66,6 +68,13 @@ export const withRetry = async <T>(
 // ─────────────────────────────────────────────────────────────────────────────
 
 
+const EUROPE_KEYWORDS = ['europe', 'eu ', 'eu,', 'emea', '欧洲', '欧盟', 'europa', 'france', 'germany', 'deutschland', 'united kingdom', 'britain', 'netherlands', 'spain', 'italy', 'nordic', 'scandinavia', 'benelux', 'swiss', 'austria', 'belgium', 'poland', 'czech'];
+function isEuropeRegion(region?: string): boolean {
+  if (!region) return false;
+  const lower = region.toLowerCase();
+  return EUROPE_KEYWORDS.some(kw => lower.includes(kw));
+}
+
 const getSystemInstruction = (lang: string, customRegion?: string, targetEcosystem?: string) => {
   const now = new Date();
   const currentDateTime = now.toLocaleString();
@@ -85,12 +94,26 @@ Method: Deep Chain of Thought (CoT).
     if (targetEcosystem === "cn") models = "Chinese models (Doubao/豆包, Kimi, DeepSeek, Qwen/通义千问, ERNIE/文心一言, Yuanbao/腾讯元宝)";
     else if (targetEcosystem === "jp") models = "Japanese ecosystem (Yahoo/Line AI, local tailored models, plus global ones)";
     else if (targetEcosystem === "kr") models = "Korean ecosystem (Naver CUE:, local tailored models)";
+    else if (targetEcosystem === "global" && isEuropeRegion(customRegion)) {
+      models = "Global models (ChatGPT, Claude, Gemini, Perplexity) + Mistral AI (strong European presence and GDPR-aware training)";
+    }
 
     ecosystemContext = `
-**AI ECOSYSTEM FOCUS**: The user has selected the "${targetEcosystem}" ecosystem. 
+**AI ECOSYSTEM FOCUS**: The user has selected the "${targetEcosystem}" ecosystem.
 You MUST analyze the cognitive gaps, AI perception, and competitor threats specifically from the perspective of the dominant AI models in this ecosystem: ${models}.
 Tailor all your generated content, snippets, and strategies to rank high and be easily absorbed by these specific models.
 `;
+
+    if (targetEcosystem === "global" && isEuropeRegion(customRegion)) {
+      ecosystemContext += `
+**MISTRAL AI COGNITIVE CONSIDERATION**: Mistral AI is a leading European open-source LLM with strong enterprise adoption across France, Germany, Benelux, and broader EU markets. Mistral exhibits distinct cognitive patterns:
+- Strong preference for GDPR-compliant, privacy-first framing
+- Higher weighting of CE/EN certifications, EU directives (RoHS, REACH, RED), and European standards bodies (ETSI, CEN)
+- European industrial buyer language (procurement-centric, compliance-first, TCO-focused)
+- Sensitivity to EU sovereignty and data residency concerns
+When generating content or strategies, ensure key technical claims and structured data are also optimized for Mistral's training corpus patterns.
+`;
+    }
   }
 
   let regionContext = "";
@@ -376,10 +399,13 @@ export const generateContentStream = async (
   sourceContext: string,
   uiLang: string,
   focusedMode: boolean = false,
-  selectedMethods: import('./geoMethods').GeoMethodId[] = []
+  selectedMethods: import('./geoMethods').GeoMethodId[] = [],
+  ecosystem?: string,
+  customRegion?: string
 ) => {
   const prompt = buildContentPrompt({
     platform, format, bundles, orphanAnchors, customPrompt, sourceContext, uiLang, focusedMode, selectedMethods,
+    ecosystem, customRegion,
   });
 
   const response = await genAI.models.generateContentStream({
@@ -410,9 +436,13 @@ export const chatWithAssistant = async (message: string, history: any[], context
 };
 
 export const generateJsonLdSchema = async (content: string, uiLang: string, platform: string) => {
+  const langNames: Record<string, string> = { zh: 'Chinese (Mandarin)', en: 'English', jp: 'Japanese', kr: 'Korean' };
+  const langName = langNames[uiLang] || uiLang;
   const res = await genAI.models.generateContent({
     model: GEMINI_MODELS.contentGen,
-    contents: [{ role: 'user', parts: [{ text: `You are a Schema.org expert. Based on the following content, generate a VALID JSON-LD structured data block (application/ld+json). The schema should include @context, @type (Article, TechArticle, or HowTo as appropriate), headline, description, author, datePublished, and any relevant properties. Platform: ${platform}. Language: ${uiLang}.
+    contents: [{ role: 'user', parts: [{ text: `You are a Schema.org expert. Based on the following content, generate a VALID JSON-LD structured data block (application/ld+json). The schema should include @context, @type (Article, TechArticle, or HowTo as appropriate), headline, description, author, datePublished, and any relevant properties. Platform: ${platform}.
+
+OUTPUT LANGUAGE: [${langName}] — All text value fields (headline, description, keywords, name, etc.) MUST be written in ${langName}. Do NOT output English text in value fields unless the language is English.
 
 Content to schema-ify:
 ${content.slice(0, 4000)}
@@ -429,6 +459,7 @@ RESPOND WITH ONLY THE JSON OBJECT. Do NOT wrap in markdown code fences. Do NOT a
 
 export const humanizeContent = async (content: string, uiLang: string = 'en') => {
   const isZh = uiLang === 'zh' || uiLang.startsWith('zh');
+  const isJp = uiLang === 'jp' || uiLang.startsWith('ja');
   
   const zhHumanizerPrompt = `你是一位顶尖的中文深度资深编辑，专门识别并剔除文本中的“AI 味”。
 你的目标是让以下文本听起来更自然、更像真实的人类专家书写，同时保留所有核心技术点和数据。
@@ -451,7 +482,29 @@ export const humanizeContent = async (content: string, uiLang: string = 'en') =>
 ${content.slice(0, 6000)}
 """`;
 
-  const genericHumanizerPrompt = `You are an expert technical editor specialized in "humanizing" AI-generated text based on the WikiProject AI Cleanup standards. 
+  const jpHumanizerPrompt = `あなたはAI生成テキストの「人間らしさ」を復元する日本語の熟練編集者です。
+以下のコンテンツから「AI臭」を取り除き、専門家が書いたような自然な日本語にリライトしてください。
+すべての技術的事実とデータは必ず保持してください。
+
+### 🚨 削除すべきAIパターン：
+1. **大げさな意義づけ**：「歴史的な転換点」「重要な意義を持つ」「体現している」などの空虚な表現を削除
+2. **機械的な接続詞**：「さらに」「加えて」「したがって」「重要なことに」の多用を削減
+3. **紋切り型の結びフレーズ**：「〜を確保する」「〜を示している」「〜の基盤を築く」などを削除
+4. **宣伝臭のある形容詞**：「革新的な」「画期的な」「驚くべき」などの誇大表現を削除
+5. **単調なリズム**：長短文を混ぜ、AI特有の3点列挙パターンを崩す
+6. **説明過多**：読者を信頼し、「これは〜を意味する」のような説明を削除
+
+### ✅ 編集要件：
+- **文体**：専門的かつ鋭さのある、個性ある文章
+- **構造**：AI的な三段論法を崩し、より自然な段落構成に
+- **言語**：流暢で地道な日本語。不要な英語混入を避ける
+
+処理対象テキスト：
+"""
+${content.slice(0, 6000)}
+"""`;
+
+  const genericHumanizerPrompt = `You are an expert technical editor specialized in "humanizing" AI-generated text based on the WikiProject AI Cleanup standards.
 Your goal is to strip away the robotic, overly-structured, and hyperbolic patterns of LLM output.
 
 ### 🚨 ELIMINATE THESE AI PATTERNS:
@@ -463,7 +516,7 @@ Your goal is to strip away the robotic, overly-structured, and hyperbolic patter
 6. **Hedge Phrases**: Remove "It is important to note," or "It appears that." Just state the facts.
 
 ### ✅ EXECUTION:
-- **Tone**: Professional, direct, and authoritative. 
+- **Tone**: Professional, direct, and authoritative.
 - **Voice**: Injects a sense of individual agency. Use "I/We found" instead of "It was observed" where appropriate.
 - **Rhythm**: Mix punchy short sentences with occasional complex ones.
 
@@ -472,7 +525,7 @@ Content to humanize:
 ${content.slice(0, 6000)}
 """`;
 
-  const finalPrompt = isZh ? zhHumanizerPrompt : genericHumanizerPrompt;
+  const finalPrompt = isZh ? zhHumanizerPrompt : isJp ? jpHumanizerPrompt : genericHumanizerPrompt;
 
   const res = await genAI.models.generateContent({
     model: GEMINI_MODELS.contentGen,
@@ -483,11 +536,18 @@ ${content.slice(0, 6000)}
 
 export const translateContent = async (content: string, targetLang: string) => {
   const langNames: Record<string, string> = { zh: 'Chinese (Mandarin)', en: 'English', jp: 'Japanese', kr: 'Korean' };
+  const langName = langNames[targetLang] || targetLang;
   const res = await genAI.models.generateContent({
     model: GEMINI_MODELS.contentGen,
-    contents: [{ role: 'user', parts: [{ text: `You are a professional translator. Translate the following content into ${langNames[targetLang] || targetLang}. Maintain all formatting, markdown structure, technical terminology accuracy, and data integrity. Ensure the translation sounds fluent and native, NOT robotic. DO NOT add any extra commentary or explanation.
+    contents: [{ role: 'user', parts: [{ text: `You are a professional translator. Your ENTIRE response MUST be written exclusively in ${langName}. Do NOT include any text in any other language. Do NOT add a preamble like "Here is the translation:" or any translator's notes. Begin the output directly with the translated content.
 
-Content:
+Translate the following Markdown content into ${langName}:
+- Preserve all Markdown formatting exactly (headers, bold, bullets, tables, code blocks)
+- Keep all technical acronyms, product names, and part numbers unchanged
+- Ensure the translation sounds fluent and native, NOT robotic
+- Preserve ALL data values (numbers, percentages, specifications) exactly as-is
+
+Content to translate:
 ${content.slice(0, 6000)}` }] }]
   });
   return res.text;
@@ -563,7 +623,17 @@ CRITICAL: Return ONLY the JSON. No markdown fences. Ensure ALL text is in [${uiL
 export const fetchUrlContent = async (url: string) => {
   const res = await fetch(`https://r.jina.ai/${url}`);
   const text = await res.text();
-  return { title: url, content: text, wordCount: text.split(/\s+/).length };
+
+  // Jina Reader prepends structured metadata — extract the real page title
+  // Format:  "Title: <title>\nURL Source: ...\n\n<body>"
+  const titleMatch = text.match(/^Title:\s*(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : url;
+
+  // Strip the Jina metadata header to get clean body text for word count
+  const bodyStart = text.indexOf('\n\n');
+  const body = bodyStart !== -1 ? text.slice(bodyStart).trim() : text;
+
+  return { title, content: text, body, wordCount: body.split(/\s+/).filter(Boolean).length };
 };
 
 // ─── Evidence Quality Scoring Helpers ────────────────────────────────────────
@@ -814,4 +884,259 @@ Return ONLY the JSON array. No markdown fences.`;
     : 'low';
 
   return { disclaimer, confidence, verifiedClaims, searchedAt: new Date().toISOString() };
+};
+
+// ─── Standalone GEO Content Optimizer ────────────────────────────────────────
+
+function buildOptimizePrompt({
+  existingContent,
+  methodDirectives,
+  platform,
+  format,
+  userDirective,
+  uiLang,
+  ecosystem,
+  customRegion,
+}: {
+  existingContent: string;
+  methodDirectives: string;
+  platform: string;
+  format: string;
+  userDirective: string;
+  uiLang: string;
+  ecosystem?: string;
+  customRegion?: string;
+}): string {
+  const directive = userDirective.trim()
+    ? `\nUSER DIRECTIVE: ${userDirective.trim()}`
+    : '';
+
+  const mistralClause = ecosystem === 'global' && isEuropeRegion(customRegion)
+    ? `\nEUROPEAN MARKET + MISTRAL AI CONSIDERATION: Target region includes Europe. Structure the optimized content to also align with Mistral AI's cognitive patterns — reference EU standards, CE/EN certifications, GDPR compliance, and European regulatory frameworks where these topics are supported by the source content. European enterprise buyers frequently use Mistral AI.`
+    : '';
+
+  return `ROLE: Elite GEO (Generative Engine Optimization) Content Optimizer / Editor.
+TASK: Rewrite and strengthen the provided content to maximize its probability of being cited, quoted, and recommended by AI language models in response to future user queries.
+
+TARGET PLATFORM: [${platform}]
+FORMAT TYPE: [${format}] — Strictly adhere to the structure and length norms of this format.
+OUTPUT LANGUAGE: [${uiLang}] — The ENTIRE output MUST be in this language. Do not mix languages.${directive}${mistralClause}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  ZERO-HALLUCINATION PROTOCOL — CRITICAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- EVERY claim, figure, specification, product name, and statistic in your output MUST originate from the SOURCE CONTENT below.
+- Do NOT introduce any new facts, entities, prices, or statistics not found in the source.
+- If a GEO method requires a data point you cannot find in the sources, SKIP that directive rather than fabricating data.
+- You are an editor improving presentation, NOT a researcher inventing new content.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GEO OPTIMIZATION DIRECTIVES (apply all that are supported by the source data):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${methodDirectives}
+- BLUF (Bottom Line Up Front): The opening paragraph must lead with the single most citable, high-value fact or claim from the source.
+- Snippet-optimized structure: Use clear H2/H3 headings, spec tables, and concise bullet lists to enable AI snippet extraction.
+- Technical terminology precision: Use exact product names, specs, part numbers, and standard acronyms as found in the source.
+- Remove hedge language: Eliminate phrases like "may", "might", "could potentially", "it is believed that" — replace with direct assertions backed by source data.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOURCE CONTENT TO OPTIMIZE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+${existingContent.slice(0, 8000)}
+"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANDATORY OUTPUT FORMAT (follow exactly):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Write the complete optimized/rewritten content.
+2. Then write exactly on its own line: == GEO_ANALYSIS ==
+3. Write a structured GEO audit with two sections:
+   **Changes Made**: Bullet list of specific structural and language changes applied.
+   **Expected GEO Signal Improvement**: Quantified estimates (e.g., "quantified claims: +3 → from 2 to 5", "hedge words removed: -4").
+4. Then write exactly on its own line: == END ==`;
+}
+
+/**
+ * Streaming GEO content optimizer for the Standalone Mode.
+ * Takes existing content and rewrites it to maximize AI citation probability,
+ * applying the selected GEO methods while maintaining strict zero-hallucination.
+ */
+export const optimizeContentForGeoStream = async (
+  existingContent: string,
+  selectedMethods: GeoMethodId[],
+  platform: string,
+  format: string,
+  userDirective: string,
+  uiLang: string,
+  ecosystem?: string,
+  customRegion?: string
+) => {
+  const methodDirectives = buildMethodDirectives(selectedMethods.slice(0, 3));
+  const prompt = buildOptimizePrompt({
+    existingContent,
+    methodDirectives,
+    platform,
+    format,
+    userDirective,
+    uiLang,
+    ecosystem,
+    customRegion,
+  });
+
+  const response = await genAI.models.generateContentStream({
+    model: GEMINI_MODELS.contentGen,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }]
+  });
+
+  async function* stream() {
+    for await (const chunk of response) {
+      if (chunk.text) yield chunk.text;
+    }
+  }
+  return stream();
+};
+// ─── Workflow Report Generator ────────────────────────────────────────────────
+
+export interface WorkflowReportParams {
+  diagnosisResult?: any;
+  selectedPlaybooks?: any[];
+  selectedMonitoringQuestions?: any[];
+  generatedContent: string;
+  geoAnalysis: string;
+  geoSignalsBefore?: import('./structuralParser').GeoSignals | null;
+  geoSignalsAfter?: import('./structuralParser').GeoSignals | null;
+  ecosystem?: string;
+  customRegion?: string;
+  uiLang: string;
+  sourceSummary?: string;
+  selectedMethodLabels?: string[];
+}
+
+function buildReportPrompt(p: WorkflowReportParams): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const titleMatch = p.generatedContent.match(/^#\s+(.+)/m) || p.generatedContent.match(/^##\s+(.+)/m);
+  const topic = titleMatch ? titleMatch[1].replace(/[*_`]/g, '') : 'GEO Content';
+
+  let dataSection = '';
+
+  if (p.diagnosisResult) {
+    const es = p.diagnosisResult.strategyReport?.executiveSummary || {};
+    const clusters = (p.diagnosisResult.intentClusters || []).slice(0, 5);
+    const competitors = (p.diagnosisResult.competitorAnalysis || []).slice(0, 3);
+    dataSection += `
+=== SECTION: DIAGNOSIS ===
+Market Pulse: ${es.marketPulse?.slice(0, 600) || 'N/A'}
+Core Roadblocks: ${es.coreRoadblocks?.slice(0, 400) || 'N/A'}
+Key Insight: ${es.keyInsight?.slice(0, 300) || 'N/A'}
+Strategic Pivot: ${es.strategicPivot?.slice(0, 300) || 'N/A'}
+Intent Clusters: ${clusters.map((c: any) => c.intentName).join(' | ')}
+Competitors: ${competitors.map((c: any) => `${c.competitorName} [${c.threatLevel}] — ${c.strategicOpening?.slice(0, 120)}`).join('\n')}
+`;
+  }
+
+  if (p.selectedPlaybooks && p.selectedPlaybooks.length > 0) {
+    dataSection += `
+=== SECTION: STRATEGY PLAYBOOKS (${p.selectedPlaybooks.length}) ===
+${p.selectedPlaybooks.map((pb: any, i: number) =>
+  `${i + 1}. [${pb.tacticsType}] ${pb.geoAction}
+   Target Snippet: ${pb.targetSnippet?.slice(0, 200) || ''}`
+).join('\n')}
+`;
+  }
+
+  if (p.sourceSummary) {
+    dataSection += `
+=== SECTION: SOURCE CONTENT ===
+${p.sourceSummary}
+`;
+  }
+
+  if (p.selectedMethodLabels && p.selectedMethodLabels.length > 0) {
+    dataSection += `
+=== SECTION: GEO METHODS APPLIED ===
+${p.selectedMethodLabels.join(', ')}
+`;
+  }
+
+  if (p.geoSignalsBefore && p.geoSignalsAfter) {
+    const b = p.geoSignalsBefore;
+    const a = p.geoSignalsAfter;
+    const d = (key: keyof typeof b) => {
+      const delta = (a[key] as number) - (b[key] as number);
+      return `${b[key]} → ${a[key]} (${delta > 0 ? '+' : ''}${delta})`;
+    };
+    dataSection += `
+=== SECTION: GEO SIGNAL IMPROVEMENT ===
+Quantified Claims: ${d('quantifiedClaims')}
+Tech Terms: ${d('techTerms')}
+Citable Chunks: ${d('citableChunks')}
+Hedge Words: ${d('hedgeWords')}
+Word Count: ${d('wordCount')}
+BLUF Compliance After: ${a.blufCompliance ? 'YES' : 'NO'}
+`;
+  }
+
+  if (p.geoAnalysis) {
+    dataSection += `
+=== SECTION: GEO AUDIT ===
+${p.geoAnalysis.slice(0, 1500)}
+`;
+  }
+
+  dataSection += `
+=== SECTION: GENERATED CONTENT (excerpt, first 2500 chars) ===
+${p.generatedContent.slice(0, 2500)}
+`;
+
+  const hasFullWorkflow = !!p.diagnosisResult;
+  const structureNote = hasFullWorkflow
+    ? `1. **Executive Overview** (3-4 paragraphs: strategic context, AI perception challenges, what was achieved)
+2. **Diagnosis Findings** (AI cognitive gaps, competitor threats, critical intent clusters — be specific, cite data)
+3. **Strategy Deployed** (playbooks chosen, tactical logic, why these GEO methods)
+4. **Content Production Results** (what was produced; include the GEO signal comparison as a Markdown table)
+5. **Next Recommended Actions** (5-7 concrete, prioritized steps — name specific platforms, content types, and tactics)`
+    : `1. **Optimization Summary** (what was optimized and why it matters)
+2. **GEO Methods Applied** (explain each method used and its expected impact)
+3. **Signal Improvement Results** (include the GEO signal comparison as a Markdown table)
+4. **Content Quality Assessment** (what changed structurally and linguistically)
+5. **Next Recommended Actions** (5-7 concrete steps to further amplify AI citation probability)`;
+
+  return `ROLE: Senior GEO Strategy Consultant & Professional Report Writer.
+TASK: Generate a comprehensive, professional GEO Strategic Report from the data below.
+
+OUTPUT LANGUAGE: [${p.uiLang}] — Write the ENTIRE report fluently in this language. Do NOT mix languages.
+TARGET ECOSYSTEM: ${p.ecosystem || 'Global'} | REGION: ${p.customRegion || 'Global'}
+
+MANDATORY REPORT STRUCTURE:
+# GEO ${hasFullWorkflow ? 'Strategic' : 'Optimization'} Report: ${topic}
+**Date**: ${date} | **Ecosystem**: ${p.ecosystem || 'Global'}${p.customRegion ? ` | **Region**: ${p.customRegion}` : ''} | **By**: Yude.jiang@st.com
+
+${structureNote}
+
+---
+*${date} © 2026 GEO Strategic Hub • Created by Yude.jiang@st.com*
+
+CRITICAL: Generate the full professional report. Be specific and data-driven. Reference actual numbers from the data. No generic platitudes.
+
+WORKFLOW DATA:
+${dataSection}`;
+}
+
+/**
+ * Streaming GEO Workflow Report generator.
+ * Synthesizes diagnosis → strategy → content into a professional Markdown report.
+ */
+export const generateWorkflowReportStream = async (params: WorkflowReportParams) => {
+  const prompt = buildReportPrompt(params);
+  const response = await genAI.models.generateContentStream({
+    model: GEMINI_MODELS.contentGen,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }]
+  });
+  async function* stream() {
+    for await (const chunk of response) {
+      if (chunk.text) yield chunk.text;
+    }
+  }
+  return stream();
 };

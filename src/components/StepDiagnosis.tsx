@@ -39,6 +39,7 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
   const updateDiagnosisResultVerification = useWorkflowStore(state => state.updateDiagnosisResultVerification);
   const updateDiagnosisResultMultiModel = useWorkflowStore(state => state.updateDiagnosisResultMultiModel);
   const updateAnchorVerifications = useWorkflowStore(state => state.updateAnchorVerifications);
+  const setCustomRegion = useWorkflowStore(state => state.setCustomRegion);
 
   const [inputText, setInputText] = useState(seedKeywords.join('\n'));
   const [regionOverride, setRegionOverride] = useState('');
@@ -64,6 +65,7 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
     setLoadingStage('Initializing grounding search...');
     const keywords = inputText.split('\n').filter(k => k.trim().length > 0);
     setSeedKeywords(keywords);
+    setCustomRegion(regionOverride);
 
     try {
       const data = await withRetry(

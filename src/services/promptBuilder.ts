@@ -35,15 +35,32 @@ export interface ContentPromptParams {
   focusedMode?: boolean;
   /** GEO optimization methods to activate (GEO 2311.09735 Table 1). Max 3 applied. */
   selectedMethods?: GeoMethodId[];
+  /** Target AI ecosystem ('global' | 'cn' | 'jp' | 'kr') */
+  ecosystem?: string;
+  /** Region override from diagnosis step — used for Mistral AI consideration */
+  customRegion?: string;
+}
+
+// ─── Europe/Mistral detection (mirrors geminiService.ts) ─────────────────────
+
+const EUROPE_KW = ['europe', 'eu ', 'eu,', 'emea', '欧洲', '欧盟', 'europa', 'france', 'germany', 'deutschland', 'united kingdom', 'britain', 'netherlands', 'spain', 'italy', 'nordic', 'scandinavia', 'benelux', 'swiss', 'austria', 'belgium', 'poland', 'czech'];
+function isEuropeRegion(region?: string): boolean {
+  if (!region) return false;
+  const lower = region.toLowerCase();
+  return EUROPE_KW.some(kw => lower.includes(kw));
 }
 
 // ─── Layer 1: System ─────────────────────────────────────────────────────────
 
 export function systemLayer({
-  platform, format, uiLang, focusedMode,
-}: Pick<ContentPromptParams, 'platform' | 'format' | 'uiLang' | 'focusedMode'>): string {
+  platform, format, uiLang, focusedMode, ecosystem, customRegion,
+}: Pick<ContentPromptParams, 'platform' | 'format' | 'uiLang' | 'focusedMode' | 'ecosystem' | 'customRegion'>): string {
   const focusedClause = focusedMode
     ? `\nFOCUSED SINGLE-INTENT MODE: Write ONE self-contained, highly focused article targeting EXACTLY ONE intent cluster and its bound anchors. Target length: 800–1,200 words. Depth over breadth — maximum semantic density around the single anchor. Do NOT cover unrelated intents.`
+    : '';
+
+  const mistralClause = ecosystem === 'global' && isEuropeRegion(customRegion)
+    ? `\n\nEUROPEAN MISTRAL AI COVERAGE: Target region includes Europe. In addition to ChatGPT/Gemini/Perplexity, optimize this content for Mistral AI — reference EU standards, CE/EN certifications, GDPR compliance, and European regulatory frameworks where present in the source materials.`
     : '';
 
   return `CRITICAL ASSIGNMENT:
@@ -51,7 +68,7 @@ You are an elite GEO (Generative Engine Optimization) content strategist. Your s
 
 TARGET PLATFORM: [${platform}]
 FORMAT TYPE: [${format}] — You MUST strictly adhere to the structure and length requirements of this format.
-OUTPUT LANGUAGE: [${uiLang}] — The ENTIRE output (including headings, analysis, and appendix) MUST be written exclusively in this language. Do NOT mix languages under any circumstances.${focusedClause}`;
+OUTPUT LANGUAGE: [${uiLang}] — The ENTIRE output (including headings, analysis, and appendix) MUST be written exclusively in this language. Do NOT mix languages under any circumstances.${focusedClause}${mistralClause}`;
 }
 
 // ─── Layer 2: Strategy ───────────────────────────────────────────────────────

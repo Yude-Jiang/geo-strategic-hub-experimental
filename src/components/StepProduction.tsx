@@ -6,19 +6,21 @@ import {
   humanizeContent,
   translateContent,
   deepEvidenceGrounding,
-  withRetry
+  withRetry,
+  generateWorkflowReportStream,
 } from '../services/geminiService';
 import type { TranslationKeys } from '../i18n/translations';
 import type { PlaybookAnchorBundle } from '../types';
 import {
   ArrowLeft, Loader2, Zap,
   ShieldCheck, Sword, Lightbulb, Target,
-  Search as SearchIcon, CheckCircle2, Circle
+  Search as SearchIcon, CheckCircle2, Circle, ChevronDown, FileText,
 } from 'lucide-react';
 
 import RagSourcePanel from './RagSourcePanel';
 import PlatformSelector from './PlatformSelector';
 import ProductOutputTabs from './ProductOutputTabs';
+import ReportModal from './ReportModal';
 import { buildAnnotatedContext, getParseStats, computeGeoSignals } from '../services/structuralParser';
 import type { GeoSignals } from '../services/structuralParser';
 import { GEO_METHODS, RECOMMENDED_COMBOS } from '../services/geoMethods';
@@ -62,8 +64,11 @@ const emptyOutput = (): BundleOutput => ({
 
 const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const uiLang = useWorkflowStore(state => state.uiLang);
+  const targetEcosystem = useWorkflowStore(state => state.targetEcosystem);
+  const customRegion = useWorkflowStore(state => state.customRegion);
   const selectedPlaybooks = useWorkflowStore(state => state.selectedPlaybooks);
   const selectedMonitoringQuestions = useWorkflowStore(state => state.selectedMonitoringQuestions);
+  const diagnosisResult = useWorkflowStore(state => state.diagnosisResult);
   const setStep = useWorkflowStore(state => state.setStep);
   const persistedSources = useWorkflowStore(state => state.persistedSources);
   const setPersistedSources = useWorkflowStore(state => state.setPersistedSources);
@@ -104,9 +109,13 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
   const [systemSources, setSystemSources] = useState<any[]>([]);
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportContent, setReportContent] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [selectedMethods, setSelectedMethods] = useState<GeoMethodId[]>(
     RECOMMENDED_COMBOS.semiconductor_technical.ids
   );
+  const [methodsExpanded, setMethodsExpanded] = useState(false);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const parseModelOutput = (text: string) => {
@@ -189,7 +198,9 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
           singleBundles, orphans,
           customPrompt, sourceContext, uiLang,
           !isFreeform,  // focusedMode = true whenever a real playbook is selected
-          selectedMethods
+          selectedMethods,
+          targetEcosystem,
+          customRegion
         ),
         (s) => updateBundle(targetIdx, { retryCountdown: s > 0 ? s : null })
       );
@@ -295,6 +306,36 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
     }
   };
 
+  // ── Report generation ─────────────────────────────────────────────────────
+  const handleGenerateReport = async () => {
+    const ao = bundleOutputs[activeBundleIdx];
+    if (!ao?.content) return;
+    setReportContent('');
+    setIsGeneratingReport(true);
+    setShowReport(true);
+    try {
+      const stream = await generateWorkflowReportStream({
+        diagnosisResult: diagnosisResult || undefined,
+        selectedPlaybooks: selectedPlaybooks.length > 0 ? selectedPlaybooks : undefined,
+        selectedMonitoringQuestions: selectedMonitoringQuestions.length > 0 ? selectedMonitoringQuestions : undefined,
+        generatedContent: ao.content,
+        geoAnalysis: ao.analysis,
+        geoSignalsBefore: ao.geoSignalsBefore,
+        geoSignalsAfter: ao.geoSignalsAfter,
+        ecosystem: targetEcosystem,
+        customRegion,
+        uiLang,
+      });
+      for await (const chunk of stream) {
+        setReportContent(prev => prev + chunk);
+      }
+    } catch (err) {
+      console.error('Report generation failed:', err);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   // ── Derived display values ─────────────────────────────────────────────────
   const activeOutput = bundleOutputs[activeBundleIdx] ?? emptyOutput();
   const activeBundle = isFreeform ? undefined : bundles[activeBundleIdx];
@@ -303,6 +344,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
+    <>
     <div className="space-y-6 animate-fade-in pb-20">
 
       {/* ── Header ── */}
@@ -440,76 +482,86 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
             {/* ── GEO Method Selector ── */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <Zap className="w-3 h-3 text-[#ffd200]" /> GEO Methods
+              <button
+                onClick={() => setMethodsExpanded(prev => !prev)}
+                className="w-full flex items-center justify-between group"
+              >
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer">
+                  <Zap className="w-3 h-3 text-[#ffd200]" /> {t.production.geoMethodsLabel}
                   <span className="text-slate-300 font-medium normal-case tracking-normal">(max 3)</span>
                 </label>
-                {selectedMethods.length > 0 && (
-                  <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                    +{(() => {
-                      const lifts = selectedMethods.slice(0, 3).map(id => parseInt(GEO_METHODS.find(m => m.id === id)?.liftEstimate || '10'));
-                      return Math.round(lifts.reduce((acc, l) => acc + Math.sqrt(l * 10), 0));
-                    })()}% lift est.
-                  </span>
-                )}
-              </div>
+                <div className="flex items-center gap-2">
+                  {selectedMethods.length > 0 && (
+                    <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                      {selectedMethods.length} selected · +{(() => {
+                        const lifts = selectedMethods.slice(0, 3).map(id => parseInt(GEO_METHODS.find(m => m.id === id)?.liftEstimate || '10'));
+                        return Math.round(lifts.reduce((acc, l) => acc + Math.sqrt(l * 10), 0));
+                      })()}%
+                    </span>
+                  )}
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${methodsExpanded ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
 
-              {/* Recommended combos */}
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(RECOMMENDED_COMBOS).map(([key, combo]) => (
-                  <button
-                    key={key}
-                    onClick={() => setSelectedMethods(combo.ids)}
-                    className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-all ${
-                      JSON.stringify(selectedMethods) === JSON.stringify(combo.ids)
-                        ? 'bg-[#03234b] text-white border-[#03234b]'
-                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-[#3cb4e6] hover:text-[#3cb4e6]'
-                    }`}
-                  >
-                    {combo.label}
-                  </button>
-                ))}
-              </div>
+              {methodsExpanded && (
+                <>
+                  {/* Recommended combos */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(RECOMMENDED_COMBOS).map(([key, combo]) => (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedMethods(combo.ids)}
+                        className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-all ${
+                          JSON.stringify(selectedMethods) === JSON.stringify(combo.ids)
+                            ? 'bg-[#03234b] text-white border-[#03234b]'
+                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-[#3cb4e6] hover:text-[#3cb4e6]'
+                        }`}
+                      >
+                        {combo.label}
+                      </button>
+                    ))}
+                  </div>
 
-              {/* Individual method toggles */}
-              <div className="space-y-1.5">
-                {GEO_METHODS.map(method => {
-                  const isSelected = selectedMethods.includes(method.id);
-                  const isDisabled = !isSelected && selectedMethods.length >= 3;
-                  return (
-                    <button
-                      key={method.id}
-                      disabled={isDisabled}
-                      onClick={() => {
-                        if (isSelected) {
-                          setSelectedMethods(prev => prev.filter(id => id !== method.id));
-                        } else if (selectedMethods.length < 3) {
-                          setSelectedMethods(prev => [...prev, method.id]);
-                        }
-                      }}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all ${
-                        isSelected
-                          ? 'bg-[#3cb4e6]/8 border-[#3cb4e6] text-[#03234b]'
-                          : isDisabled
-                            ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
-                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-white'
-                      }`}
-                    >
-                      <div className={`w-3.5 h-3.5 rounded flex-shrink-0 border-2 transition-all ${
-                        isSelected ? 'bg-[#3cb4e6] border-[#3cb4e6]' : 'border-slate-300'
-                      }`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-black leading-none">{method.label}</div>
-                        <div className="text-[9px] text-slate-400 mt-0.5 leading-snug truncate">{method.description}</div>
-                      </div>
-                      <span className={`text-[9px] font-black flex-shrink-0 ${isSelected ? 'text-emerald-600' : 'text-slate-300'}`}>
-                        {method.liftEstimate}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                  {/* Individual method toggles */}
+                  <div className="space-y-1.5">
+                    {GEO_METHODS.map(method => {
+                      const isSelected = selectedMethods.includes(method.id);
+                      const isDisabled = !isSelected && selectedMethods.length >= 3;
+                      return (
+                        <button
+                          key={method.id}
+                          disabled={isDisabled}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedMethods(prev => prev.filter(id => id !== method.id));
+                            } else if (selectedMethods.length < 3) {
+                              setSelectedMethods(prev => [...prev, method.id]);
+                            }
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all ${
+                            isSelected
+                              ? 'bg-[#3cb4e6]/8 border-[#3cb4e6] text-[#03234b]'
+                              : isDisabled
+                                ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
+                                : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-white'
+                          }`}
+                        >
+                          <div className={`w-3.5 h-3.5 rounded flex-shrink-0 border-2 transition-all ${
+                            isSelected ? 'bg-[#3cb4e6] border-[#3cb4e6]' : 'border-slate-300'
+                          }`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[10px] font-black leading-none">{method.label}</div>
+                            <div className="text-[9px] text-slate-400 mt-0.5 leading-snug truncate">{method.description}</div>
+                          </div>
+                          <span className={`text-[9px] font-black flex-shrink-0 ${isSelected ? 'text-emerald-600' : 'text-slate-300'}`}>
+                            {method.liftEstimate}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -563,11 +615,25 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
 
         {/* ── Right panel: output for active bundle ── */}
         <div className="lg:col-span-8">
+          {activeOutput.content && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#ffd200] to-[#f5c400] text-[#03234b] text-[10px] font-black uppercase tracking-widest rounded-xl hover:shadow-md transition-all disabled:opacity-50"
+              >
+                {isGeneratingReport
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t.production.reportGenerating}</>
+                  : <><FileText className="w-3.5 h-3.5" /> {t.production.reportBtn}</>
+                }
+              </button>
+            </div>
+          )}
           {activeOutput.generateError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
               <span className="text-red-500 text-lg">⚠️</span>
               <div>
-                <p className="text-red-800 font-black text-xs uppercase tracking-widest">Generation Failed</p>
+                <p className="text-red-800 font-black text-xs uppercase tracking-widest">{t.production.generationFailed}</p>
                 <p className="text-red-700 text-sm mt-1 font-mono">{activeOutput.generateError}</p>
               </div>
             </div>
@@ -577,7 +643,7 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3">
               <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
               <p className="text-xs font-bold text-amber-800 leading-relaxed">
-                输出已达到安全长度上限（18,000 字符）并自动截断。如需更长内容，请缩减剧本数量或使用更简洁的格式类型。
+                {t.production.streamTruncatedMsg}
               </p>
             </div>
           )}
@@ -599,6 +665,14 @@ const StepProduction: React.FC<{ t: TranslationKeys }> = ({ t }) => {
         </div>
       </div>
     </div>
+    <ReportModal
+      isOpen={showReport}
+      onClose={() => setShowReport(false)}
+      content={reportContent}
+      isGenerating={isGeneratingReport}
+      t={t}
+    />
+    </>
   );
 };
 
