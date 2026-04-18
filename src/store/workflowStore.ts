@@ -53,6 +53,14 @@ export interface WorkflowState {
   chatHistory: { role: 'user' | 'assistant', content: string }[];
   addChatMessage: (msg: { role: 'user' | 'assistant', content: string }) => void;
   clearChatHistory: () => void;
+
+  // Standalone Mode
+  standaloneMode: boolean;
+  setStandaloneMode: (mode: boolean) => void;
+
+  // Region override (from diagnosis — shared across all modes)
+  customRegion: string;
+  setCustomRegion: (region: string) => void;
 }
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -107,6 +115,12 @@ export const useWorkflowStore = create<WorkflowState>()(
       chatHistory: [],
       addChatMessage: (msg) => set((state) => ({ chatHistory: [...state.chatHistory, msg] })),
       clearChatHistory: () => set({ chatHistory: [] }),
+
+      standaloneMode: false,
+      setStandaloneMode: (mode) => set({ standaloneMode: mode }),
+
+      customRegion: '',
+      setCustomRegion: (region) => set({ customRegion: region }),
     }),
     {
       name: 'geo-hub-storage', // saves to localStorage

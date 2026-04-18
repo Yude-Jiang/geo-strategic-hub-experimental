@@ -13,10 +13,11 @@ interface Props {
   onSourcesChange: (sources: RagSource[]) => void;
   systemSources?: RagSource[];
   isLoading?: boolean;
+  initialSources?: RagSource[];
 }
 
-const RagSourcePanel: React.FC<Props> = ({ onSourcesChange, systemSources }) => {
-  const [sources, setSources] = useState<RagSource[]>([]);
+const RagSourcePanel: React.FC<Props> = ({ onSourcesChange, systemSources, initialSources }) => {
+  const [sources, setSources] = useState<RagSource[]>(initialSources ?? []);
   const [urlInput, setUrlInput] = useState('');
   const [isUrlLoading, setIsUrlLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
