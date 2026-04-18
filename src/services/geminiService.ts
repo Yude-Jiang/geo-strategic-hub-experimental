@@ -819,9 +819,9 @@ export const verifyModelClaims = async (
 ): Promise<ModelVerificationResult> => {
   const disclaimer =
     ecosystem === 'cn'
-      ? '以下多模型认知分析由 Gemini 推理模拟生成，非实时调用 DeepSeek / Kimi / 百度等模型 API。验证层通过 Google Search 抓取公开语料，佐证上述推断的可信度。'
+      ? '以下多模型认知分析由 Gemini 推理模拟生成，非实时调用 DeepSeek / Kimi / 百度等模型 API。如已配置对应 API Key，下方「跨模型认知共识」一栏将展示各模型真实响应以供对照。'
       : ecosystem === 'jp'
-      ? '以下のマルチモデル分析は Gemini によるシミュレーションです。Yahoo/Line AI・Claude 3 への直接クエリではありません。検証レイヤーは Google 検索で公開コーパスからエビデンスを収集します。'
+      ? '以下のマルチモデル分析は Gemini によるシミュレーションです。Yahoo/Line AI・Claude 3 への直接クエリではありません。API Key を設定済みの場合、下部の「モデル間共識」セクションに実際の応答が表示されます。'
       : 'The multi-model analysis below is simulated by Gemini — it does NOT reflect real-time queries to DeepSeek, Kimi, Doubao, or other ecosystem models. The verification layer uses Google Search grounding to find public evidence supporting these inferences.';
 
   // Step 1: Ask Gemini to extract 2-3 concrete, searchable claims from marketPulse

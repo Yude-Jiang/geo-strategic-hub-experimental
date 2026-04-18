@@ -321,8 +321,8 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
                 </div>
 
                 <div className="p-6 space-y-5">
-                  {/* Disclaimer */}
-                  {mv && (
+                  {/* Disclaimer — hidden for CN when real mmv data is present */}
+                  {mv && !mmv && (
                     <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
                       <div>
@@ -330,13 +330,22 @@ const StepDiagnosis: React.FC<Props> = ({ t }) => {
                           Simulation Disclaimer
                         </p>
                         <p className="text-xs text-amber-800 leading-relaxed">{mv.disclaimer}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <span className="text-[10px] font-bold text-amber-600 uppercase">Google Search Confidence:</span>
-                          <span className={`text-[11px] font-black uppercase ${confidenceColor[mv.confidence] || 'text-slate-400'}`}>
-                            {mv.confidence}
-                          </span>
-                        </div>
+                        {targetEcosystem !== 'cn' && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-[10px] font-bold text-amber-600 uppercase">Google Search Confidence:</span>
+                            <span className={`text-[11px] font-black uppercase ${confidenceColor[mv.confidence] || 'text-slate-400'}`}>
+                              {mv.confidence}
+                            </span>
+                          </div>
+                        )}
                       </div>
+                    </div>
+                  )}
+                  {/* For CN: show minimal simulation note only when mmv is still loading */}
+                  {mv && mmv === undefined && targetEcosystem === 'cn' && (
+                    <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                      <AlertTriangle className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                      <p className="text-[11px] text-slate-500 leading-relaxed">{mv.disclaimer}</p>
                     </div>
                   )}
 
