@@ -19,11 +19,8 @@ const SECRET_NAMES = [
 // var binding or a local .env.local file).  Requires the service account to
 // have the "Secret Manager Secret Accessor" role.
 async function loadSecretsFromGSM() {
-  const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT;
-  if (!projectId) {
-    console.log('GOOGLE_CLOUD_PROJECT not set — skipping Secret Manager fetch, using process.env directly.');
-    return;
-  }
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || 'st-china-ai-force';
+  console.log(`Fetching secrets from project: ${projectId}`);
 
   const client = new SecretManagerServiceClient();
   await Promise.all(
