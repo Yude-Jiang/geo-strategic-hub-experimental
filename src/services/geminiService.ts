@@ -5,9 +5,24 @@ import { buildMethodDirectives } from "./geoMethods";
 import type { GeoMethodId } from "./geoMethods";
 import { GEMINI_MODELS } from "../config/models";
 
-// Initialize with Runtime env (from server.js) or Vite env (built-in)
-const apiKey = (window as any).env?.VITE_GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
-const genAI = new GoogleGenAI({ apiKey });
+// Read API key lazily so user-entered keys (localStorage) are always picked up
+const getApiKey = (): string =>
+  (window as any).env?.VITE_GEMINI_API_KEY ||
+  import.meta.env.VITE_GEMINI_API_KEY ||
+  localStorage.getItem('geo_gemini_api_key') ||
+  '';
+
+let _genAI: GoogleGenAI | null = null;
+let _genAIKey = '';
+
+const getGenAI = (): GoogleGenAI => {
+  const key = getApiKey();
+  if (!_genAI || key !== _genAIKey) {
+    _genAIKey = key;
+    _genAI = new GoogleGenAI({ apiKey: key });
+  }
+  return _genAI;
+};
 
 // ─── Universal Retry Utility ──────────────────────────────────────────────────
 // Parses the retryDelay from a 429 Gemini API error (supports nested JSON)
@@ -353,7 +368,7 @@ export const analyzeContent = async (textInput: string, images: any[] = [], targ
   const nineMonthsAgo = new Date(now.setMonth(now.getMonth() - 9)).toLocaleDateString();
 
   try {
-    const gResult = await genAI.models.generateContent({
+    const gResult = await getGenAI().models.generateContent({
       model: GEMINI_MODELS.grounding,
       contents: [{ role: 'user', parts: [{ text: `CRITICAL IMPERATIVE: The current date is ${new Date().toLocaleDateString()}. Perform a real-time Google Search grounding for: "${textInput}". You MUST actively search and return the absolute latest technical discussions, market gaps, and competitor news SPECIFICALLY from the last 9 months (since ${nineMonthsAgo}). STRIP OUT all outdated data from before ${nineMonthsAgo}. Provide a dense summary of the ACTUAL current landscape as of today.` }] }],
       config: {
@@ -373,7 +388,7 @@ export const analyzeContent = async (textInput: string, images: any[] = [], targ
     inlineData: { data: img.data, mimeType: img.mimeType } 
   }));
 
-  const resultBy = await genAI.models.generateContent({
+  const resultBy = await getGenAI().models.generateContent({
     model: GEMINI_MODELS.analysis,
     contents: [{ role: 'user', parts: parts }],
     config: {
@@ -408,7 +423,7 @@ export const generateContentStream = async (
     ecosystem, customRegion,
   });
 
-  const response = await genAI.models.generateContentStream({
+  const response = await getGenAI().models.generateContentStream({
     model: GEMINI_MODELS.contentGen,
     contents: [{ role: 'user', parts: [{ text: prompt }] }]
   });
@@ -422,7 +437,7 @@ export const generateContentStream = async (
 };
 
 export const chatWithAssistant = async (message: string, history: any[], contextData: any, uiLang: string) => {
-  const response = await genAI.models.generateContent({
+  const response = await getGenAI().models.generateContent({
     model: GEMINI_MODELS.chat,
     contents: [
       ...history.map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content }] })),
@@ -438,7 +453,7 @@ export const chatWithAssistant = async (message: string, history: any[], context
 export const generateJsonLdSchema = async (content: string, uiLang: string, platform: string) => {
   const langNames: Record<string, string> = { zh: 'Chinese (Mandarin)', en: 'English', jp: 'Japanese', kr: 'Korean' };
   const langName = langNames[uiLang] || uiLang;
-  const res = await genAI.models.generateContent({
+  const res = await getGenAI().models.generateContent({
     model: GEMINI_MODELS.contentGen,
     contents: [{ role: 'user', parts: [{ text: `You are a Schema.org expert. Based on the following content, generate a VALID JSON-LD structured data block (application/ld+json). The schema should include @context, @type (Article, TechArticle, or HowTo as appropriate), headline, description, author, datePublished, and any relevant properties. Platform: ${platform}.
 
@@ -527,7 +542,7 @@ ${content.slice(0, 6000)}
 
   const finalPrompt = isZh ? zhHumanizerPrompt : isJp ? jpHumanizerPrompt : genericHumanizerPrompt;
 
-  const res = await genAI.models.generateContent({
+  const res = await getGenAI().models.generateContent({
     model: GEMINI_MODELS.contentGen,
     contents: [{ role: 'user', parts: [{ text: finalPrompt }] }]
   });
@@ -537,7 +552,7 @@ ${content.slice(0, 6000)}
 export const translateContent = async (content: string, targetLang: string) => {
   const langNames: Record<string, string> = { zh: 'Chinese (Mandarin)', en: 'English', jp: 'Japanese', kr: 'Korean' };
   const langName = langNames[targetLang] || targetLang;
-  const res = await genAI.models.generateContent({
+  const res = await getGenAI().models.generateContent({
     model: GEMINI_MODELS.contentGen,
     contents: [{ role: 'user', parts: [{ text: `You are a professional translator. Your ENTIRE response MUST be written exclusively in ${langName}. Do NOT include any text in any other language. Do NOT add a preamble like "Here is the translation:" or any translator's notes. Begin the output directly with the translated content.
 
@@ -607,7 +622,7 @@ You must return a VALID JSON object matching this structure:
 CRITICAL: Return ONLY the JSON. No markdown fences. Ensure ALL text is in [${uiLang}].
 `;
 
-  const res = await genAI.models.generateContent({
+  const res = await getGenAI().models.generateContent({
     model: GEMINI_MODELS.analysis,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
@@ -707,7 +722,7 @@ export const deepEvidenceGrounding = async (anchors: string[]): Promise<ScoredEv
 
   const results = await Promise.all(anchors.map(async (anchor): Promise<ScoredEvidenceSource | null> => {
     try {
-      const gResult = await genAI.models.generateContent({
+      const gResult = await getGenAI().models.generateContent({
         model: GEMINI_MODELS.grounding,
         contents: [{ role: 'user', parts: [{ text: `DEEP FACT CHECK: Find authoritative technical specifications, official prices, or performance figures for: "${anchor}". Priority: Official Whitepapers, Wiki, or Technical Forums. Summarize the hard data found.` }] }],
         config: { tools: [{ googleSearch: {} } as any] }
@@ -776,7 +791,7 @@ export const verifyAnchors = async (
   const results = await Promise.all(
     questions.map(async (q): Promise<AnchorVerificationResult> => {
       try {
-        const gResult = await genAI.models.generateContent({
+        const gResult = await getGenAI().models.generateContent({
           model: GEMINI_MODELS.grounding,
           contents: [{ role: 'user', parts: [{ text: `Search for real-world evidence of this specific technical fact or entity: "${q.expectedAnchor}". Return any authoritative sources (official docs, datasheets, whitepapers, forum posts) that confirm it exists. Be direct — only state what the sources say.` }] }],
           config: { tools: [{ googleSearch: {} } as any] }
@@ -836,7 +851,7 @@ Return ONLY the JSON array. No markdown fences.`;
 
   let searchQueries: string[] = [];
   try {
-    const extractRes = await genAI.models.generateContent({
+    const extractRes = await getGenAI().models.generateContent({
       model: GEMINI_MODELS.grounding,
       contents: [{ role: 'user', parts: [{ text: claimExtractionPrompt }] }],
       config: { responseMimeType: 'application/json' }
@@ -854,7 +869,7 @@ Return ONLY the JSON array. No markdown fences.`;
   const verifiedClaims: ModelClaimVerification[] = await Promise.all(
     searchQueries.map(async (query): Promise<ModelClaimVerification> => {
       try {
-        const gResult = await genAI.models.generateContent({
+        const gResult = await getGenAI().models.generateContent({
           model: GEMINI_MODELS.grounding,
           contents: [{ role: 'user', parts: [{ text: `Find public evidence (tech forums, articles, official docs) supporting or refuting: "${query}". Summarize what you find.` }] }],
           config: { tools: [{ googleSearch: {} } as any] }
@@ -984,7 +999,7 @@ export const optimizeContentForGeoStream = async (
     customRegion,
   });
 
-  const response = await genAI.models.generateContentStream({
+  const response = await getGenAI().models.generateContentStream({
     model: GEMINI_MODELS.contentGen,
     contents: [{ role: 'user', parts: [{ text: prompt }] }]
   });
@@ -1129,7 +1144,7 @@ ${dataSection}`;
  */
 export const generateWorkflowReportStream = async (params: WorkflowReportParams) => {
   const prompt = buildReportPrompt(params);
-  const response = await genAI.models.generateContentStream({
+  const response = await getGenAI().models.generateContentStream({
     model: GEMINI_MODELS.contentGen,
     contents: [{ role: 'user', parts: [{ text: prompt }] }]
   });

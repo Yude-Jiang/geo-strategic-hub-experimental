@@ -1,18 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useWorkflowStore } from './store/workflowStore';
 import type { Ecosystem } from './store/workflowStore';
 import type { UILang } from './i18n/translations';
 import { translations } from './i18n/translations';
-import { Globe, Target, BookOpen, PenTool, Cpu, Languages, Zap } from 'lucide-react';
+import { Globe, Target, BookOpen, PenTool, Cpu, Languages, Zap, Settings } from 'lucide-react';
 import StepDiagnosis from './components/StepDiagnosis';
 import StepStrategy from './components/StepStrategy';
 import StepProduction from './components/StepProduction';
 import StandaloneMode from './components/StandaloneMode';
 import ChatAssistant from './components/ChatAssistant';
+import SettingsModal from './components/SettingsModal';
 
 const App: React.FC = () => {
   const { currentStep, targetEcosystem, setTargetEcosystem, setStep, diagnosisConfirmed, strategyConfirmed, uiLang, setUiLang, standaloneMode, setStandaloneMode } = useWorkflowStore();
   const t = translations[uiLang];
+  const [showSettings, setShowSettings] = useState(false);
 
   const ecosystems: { id: Ecosystem; label: string }[] = [
     { id: 'global', label: t.ecosystems.global },
@@ -55,6 +57,15 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Settings */}
+            <button
+              onClick={() => setShowSettings(true)}
+              title={t.settings.btnTitle}
+              className="p-2 rounded text-white/50 hover:text-white hover:bg-[#2a4060] transition-all border border-transparent hover:border-[#8191a5]/30"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
             {/* Standalone Mode Toggle */}
             <button
               onClick={() => setStandaloneMode(!standaloneMode)}
@@ -171,6 +182,7 @@ const App: React.FC = () => {
       </footer>
       
       <ChatAssistant />
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} t={t} />
     </div>
   );
 };
