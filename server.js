@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { GoogleAuth } from 'google-auth-library';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,8 +21,18 @@ const SECRET_NAMES = [
 // have the "Secret Manager Secret Accessor" role.
 async function loadSecretsFromGSM() {
   const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || 'st-china-ai-force';
-  console.log(`Fetching secrets from project: ${projectId}`);
 
+  // Verify Application Default Credentials are available before touching the
+  // gRPC client — avoids an unhandled async crash when running locally without
+  // gcloud credentials.
+  try {
+    await new GoogleAuth().getApplicationDefault();
+  } catch {
+    console.log('No GCP credentials found — skipping Secret Manager, using process.env directly.');
+    return;
+  }
+
+  console.log(`Fetching secrets from project: ${projectId}`);
   const client = new SecretManagerServiceClient();
   await Promise.all(
     SECRET_NAMES.map(async (name) => {
