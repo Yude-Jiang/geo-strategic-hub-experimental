@@ -74,6 +74,27 @@ async function startServer() {
     res.send(`window.env = ${JSON.stringify(envVars)};`);
   });
 
+  // Proxy route: fetch a URL via Jina Reader on the server side, avoiding
+  // browser-level firewall/CORS blocks on r.jina.ai.
+  app.get('/api/fetch-url', async (req, res) => {
+    const url = req.query.url;
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ error: 'Invalid URL' });
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const upstream = await fetch(`https://r.jina.ai/${url}`, { signal: controller.signal });
+      clearTimeout(timer);
+      const text = await upstream.text();
+      res.set('Content-Type', 'text/plain; charset=utf-8');
+      res.send(text);
+    } catch (err) {
+      clearTimeout(timer);
+      res.status(502).json({ error: err.message || 'Upstream fetch failed' });
+    }
+  });
+
   // Serve static files from the build directory
   app.use(express.static(path.join(__dirname, 'dist')));
 

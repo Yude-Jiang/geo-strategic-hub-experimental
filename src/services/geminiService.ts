@@ -626,7 +626,13 @@ CRITICAL: Return ONLY the JSON. No markdown fences. Ensure ALL text is in [${uiL
 };
 
 export const fetchUrlContent = async (url: string) => {
-  const res = await fetch(`https://r.jina.ai/${url}`);
+  const res = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    let detail = '';
+    try { detail = JSON.parse(body).error; } catch { detail = body; }
+    throw new Error(detail || `抓取失败（${res.status}）`);
+  }
   const text = await res.text();
 
   // Jina Reader prepends structured metadata — extract the real page title
